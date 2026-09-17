@@ -142,7 +142,7 @@ function startSidebarResize(event) {
       </v-list>
       <div class="sidebar-footer">
         <v-btn class="sidebar-footer-btn" :class="{ 'sidebar-footer-icon-btn': isRailSidebar }" :size="isRailSidebar ? 'default' : 'small'"
-          variant="text" to="/settings"
+          variant="text" to="/ecobot/settings"
           :prepend-icon="isRailSidebar ? undefined : 'mdi-cog'" :aria-label="t('core.navigation.settings')">
           <v-icon v-if="isRailSidebar" icon="mdi-cog" />
           <template v-else>{{ t('core.navigation.settings') }}</template>

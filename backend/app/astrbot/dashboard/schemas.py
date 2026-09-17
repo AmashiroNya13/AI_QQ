@@ -240,7 +240,7 @@ class KnowledgeBaseRequest(OpenModel):
         """Return the service-facing knowledge base payload.
 
         Returns:
-            Dictionary accepted by KnowledgeBaseService.
+            Dictionary accepted by the configuration layer.
         """
         return self.model_dump(
             exclude_unset=True,

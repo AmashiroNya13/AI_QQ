@@ -28,14 +28,8 @@
     <template v-else-if="itemMeta?._special === 'persona_pool'">
       <PersonaSelector :model-value="modelValue" @update:model-value="emitUpdate" :button-text="t('core.shared.personaSelector.selectPersonaPool')" />
     </template>
-    <template v-else-if="itemMeta?._special === 'select_knowledgebase'">
-      <KnowledgeBaseSelector :model-value="modelValue" @update:model-value="emitUpdate" />
-    </template>
     <template v-else-if="itemMeta?._special === 'select_plugin_set'">
       <PluginSetSelector :model-value="modelValue" @update:model-value="emitUpdate" />
-    </template>
-    <template v-else-if="itemMeta?._special === 't2i_template'">
-      <T2ITemplateEditor />
     </template>
     <template v-else-if="itemMeta?._special === 'dashboard_totp_manager'">
       <DashboardTotpManager
@@ -247,9 +241,7 @@ import FileConfigItem from './FileConfigItem.vue'
 import ObjectEditor from './ObjectEditor.vue'
 import ProviderSelector from './ProviderSelector.vue'
 import PersonaSelector from './PersonaSelector.vue'
-import KnowledgeBaseSelector from './KnowledgeBaseSelector.vue'
 import PluginSetSelector from './PluginSetSelector.vue'
-import T2ITemplateEditor from './T2ITemplateEditor.vue'
 import DashboardTotpManager from './DashboardTotpManager.vue'
 import { computed, ref } from 'vue'
 import { useI18n, useModuleI18n } from '@/i18n/composables'

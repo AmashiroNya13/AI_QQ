@@ -1,11 +1,3 @@
-import type { RouteLocationNormalized } from 'vue-router';
-
-const redirectToDataTab = (name: string) => (to: RouteLocationNormalized) => ({
-  name,
-  query: to.query,
-  hash: to.hash
-});
-
 const MainRoutes = {
   path: '/main',
   meta: {
@@ -85,99 +77,20 @@ const MainRoutes = {
       component: () => import('@/views/ConfigPage.vue')
     },
     {
-      path: '/normal',
-      redirect: '/config'
-    },
-    {
-      path: '/system',
-      redirect: '/settings#system-config'
-    },
-    {
       name: 'Persona',
       path: '/persona',
       component: () => import('@/views/PersonaPage.vue')
     },
     {
-      name: 'Data',
-      path: '/data',
-      component: () => import('@/views/DataPage.vue'),
-      redirect: redirectToDataTab('Stats'),
-      children: [
-        {
-          name: 'Stats',
-          path: 'statistics',
-          component: () => import('@/views/stats/StatsPage.vue'),
-          meta: { dataTab: 'statistics' }
-        },
-        {
-          name: 'Conversation',
-          path: 'conversations',
-          component: () => import('@/views/conversation/ConversationWorkspacePage.vue'),
-          meta: { dataTab: 'conversations' }
-        },
-        {
-          name: 'ConversationLegacy',
-          path: 'conversations/legacy',
-          component: () => import('@/views/conversation/LegacyConversationPage.vue'),
-          meta: { dataTab: 'conversations' }
-        },
-        {
-          name: 'Console',
-          path: 'logs',
-          component: () => import('@/views/ConsolePage.vue'),
-          meta: { dataTab: 'logs' }
-        },
-        {
-          name: 'Trace',
-          path: 'trace',
-          component: () => import('@/views/TracePage.vue'),
-          meta: { dataTab: 'trace' }
-        }
-      ]
+      name: 'EcobotLogs',
+      path: '/data/logs',
+      component: () => import('@/views/ConsolePage.vue')
     },
     {
-      path: '/dashboard/default',
-      redirect: redirectToDataTab('Stats')
+      name: 'EcobotTrace',
+      path: '/data/trace',
+      component: () => import('@/views/TracePage.vue')
     },
-    {
-      path: '/conversation',
-      redirect: redirectToDataTab('Conversation')
-    },
-    {
-      path: '/console',
-      redirect: redirectToDataTab('Console')
-    },
-    {
-      path: '/trace',
-      redirect: redirectToDataTab('Trace')
-    },
-    {
-      path: '/observability',
-      redirect: redirectToDataTab('Stats')
-    },
-    {
-      name: 'Chat',
-      path: '/chat',
-      component: () => import('@/views/ChatPage.vue'),
-      children: [
-        {
-          path: ':conversationId',
-          name: 'ChatDetail',
-          component: () => import('@/views/ChatPage.vue'),
-          props: true
-        }
-      ]
-    },
-    {
-      name: 'Settings',
-      path: '/settings',
-      component: () => import('@/views/Settings.vue')
-    },
-    {
-      name: 'About',
-      path: '/about',
-      component: () => import('@/views/AboutPage.vue')
-    }
   ]
 };
 

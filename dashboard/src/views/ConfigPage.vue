@@ -93,14 +93,6 @@
           </template>
         </v-tooltip>
 
-        <v-tooltip text="测试当前配置" location="left" v-if="!isSystemConfig">
-          <template v-slot:activator="{ props }">
-            <v-btn v-bind="props" icon="mdi-chat-processing" size="x-large"
-              style="position: fixed; right: 52px; bottom: 196px;" color="secondary"
-              @click="openTestChat">
-            </v-btn>
-          </template>
-        </v-tooltip>
       </template>
 
     </div>
@@ -214,34 +206,6 @@
     @cancel="handleConfigSave2faCancel"
   />
 
-  <!-- 测试聊天抽屉 -->
-  <v-overlay
-    v-model="testChatDrawer"
-    class="test-chat-overlay"
-    location="right"
-    transition="slide-x-reverse-transition"
-    :scrim="true"
-    @click:outside="closeTestChat"
-  >
-    <v-card class="test-chat-card" elevation="12">
-      <div class="test-chat-header">
-        <div>
-          <span class="text-h6">测试配置</span>
-          <div v-if="selectedConfigInfo.name" class="text-caption text-grey">
-            {{ configDisplayName(selectedConfigInfo) }} ({{ testConfigId }})
-          </div>
-        </div>
-        <v-btn icon variant="text" @click="closeTestChat">
-          <v-icon>mdi-close</v-icon>
-        </v-btn>
-      </div>
-      <v-divider></v-divider>
-      <div class="test-chat-content">
-        <StandaloneChat v-if="testChatDrawer" :configId="testConfigId" />
-      </div>
-    </v-card>
-  </v-overlay>
-
   <!-- 未保存更改确认弹窗 -->
   <UnsavedChangesConfirmDialog ref="unsavedChangesDialog" />
 
@@ -252,7 +216,6 @@
 import { configProfileApi, systemConfigApi } from '@/api/v1';
 import AstrBotCoreConfigWrapper from '@/components/config/AstrBotCoreConfigWrapper.vue';
 import ConfigProfileMenu from '@/components/config/ConfigProfileMenu.vue';
-import StandaloneChat from '@/components/chat/StandaloneChat.vue';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import {
@@ -269,7 +232,6 @@ export default {
     AstrBotCoreConfigWrapper,
     ConfigProfileMenu,
     VueMonacoEditor,
-    StandaloneChat,
     UnsavedChangesConfirmDialog,
     DashboardTwoFactorDialog
   },
@@ -382,7 +344,7 @@ export default {
     },
     async '$route.fullPath'(newVal) {
       if (this.extractConfigTypeFromHash(newVal) === 'system') {
-        this.$router.replace('/settings#system-config');
+        this.$router.replace('/config#system-config');
         return;
       }
       await this.syncConfigTypeFromHash(newVal);
@@ -439,10 +401,6 @@ export default {
       editingConfigId: null,
       copySourceConfigId: '',
 
-      // 测试聊天
-      testChatDrawer: false,
-      testConfigId: null,
-
       // 未保存的更改状态
       hasUnsavedChanges: false,
       // 存储原始配置
@@ -454,7 +412,7 @@ export default {
       this.$route?.fullPath || ''
     );
     if (hashConfigType === 'system') {
-      this.$router.replace('/settings#system-config');
+        this.$router.replace('/config#system-config');
       return;
     }
     this.configType = hashConfigType || 'normal';
@@ -953,7 +911,7 @@ export default {
           await this.updateConfig();
           // 系统配置保存后不跳转
           if (this.isSystemConfig) {
-            this.$router.replace('/settings#system-config');
+            this.$router.replace('/config#system-config');
             return;
           }
         }
@@ -978,20 +936,6 @@ export default {
       this.configType = this.isSystemConfig ? 'system' : 'normal';
 
       this.onConfigTypeToggle();
-    },
-    openTestChat() {
-      if (!this.selectedConfigID) {
-        this.save_message = "请先选择一个配置文件";
-        this.save_message_snack = true;
-        this.save_message_success = "warning";
-        return;
-      }
-      this.testConfigId = this.selectedConfigID;
-      this.testChatDrawer = true;
-    },
-    closeTestChat() {
-      this.testChatDrawer = false;
-      this.testConfigId = null;
     },
     getConfigSnapshot(config) {
       return JSON.stringify(config ?? {});
@@ -1205,31 +1149,4 @@ export default {
   }
 }
 
-/* 测试聊天抽屉样式 */
-.test-chat-overlay {
-  align-items: stretch;
-  justify-content: flex-end;
-}
-
-.test-chat-card {
-  width: clamp(320px, 50vw, 720px);
-  height: calc(100vh - 32px);
-  display: flex;
-  flex-direction: column;
-  margin: 16px;
-}
-
-.test-chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px 12px 20px;
-}
-
-.test-chat-content {
-  flex: 1;
-  overflow: hidden;
-  padding: 0;
-  border-radius: 0 0 16px 16px;
-}
 </style>

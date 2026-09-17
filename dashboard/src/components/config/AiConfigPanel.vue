@@ -46,9 +46,11 @@
           <div>
             <h3 class="ai-config-panel__section-title">
               <span>{{ runnerSettingsTitle }}</span>
-              <AstrBotLogo
+              <v-icon
                 v-if="runnerType === 'local'"
+                icon="mdi-creation-outline"
                 class="ai-config-panel__brand-logo"
+                aria-hidden="true"
               />
             </h3>
             <p class="ai-config-panel__section-subtitle">
@@ -197,7 +199,6 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import AstrBotLogo from '@/components/chat/ChatUILogo.vue';
 import AstrBotConfigV4 from '@/components/shared/AstrBotConfigV4.vue';
 import StyledMenu from '@/components/shared/StyledMenu.vue';
 import { useModuleI18n } from '@/i18n/composables';
