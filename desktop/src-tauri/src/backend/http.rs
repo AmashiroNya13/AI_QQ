@@ -209,7 +209,7 @@ Content-Length: {}\r\n\
     pub(crate) fn fetch_backend_start_time(&self) -> Option<i64> {
         let payload = self.request_backend_json(
             "GET",
-            "/api/stat/start-time",
+            "/api/v1/stats/start-time",
             GRACEFUL_RESTART_START_TIME_TIMEOUT_MS,
             None,
             None,

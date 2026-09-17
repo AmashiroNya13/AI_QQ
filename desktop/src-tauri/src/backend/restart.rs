@@ -52,7 +52,7 @@ impl BackendState {
     fn request_graceful_restart(&self, auth_token: Option<&str>) -> bool {
         let status_code = self.request_backend_status_code(
             "POST",
-            "/api/stat/restart-core",
+            "/api/v1/system/restart",
             GRACEFUL_RESTART_REQUEST_TIMEOUT_MS,
             Some("{}"),
             auth_token,
