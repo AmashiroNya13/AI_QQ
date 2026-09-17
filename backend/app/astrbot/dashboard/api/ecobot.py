@@ -215,6 +215,55 @@ async def autonomy_capabilities(
         store.close()
 
 
+@router.get("/ecobot/autonomy/world-entities")
+async def autonomy_world_entities(
+    entity_kind: str | None = None,
+    limit: int = Query(200, ge=1, le=2000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.world_entities(limit, entity_kind))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/autonomy/schedule-facts")
+async def autonomy_schedule_facts(
+    limit: int = Query(100, ge=1, le=1000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.schedule_facts(limit))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/autonomy/world-rules")
+async def autonomy_world_rules(
+    action_type: str | None = None,
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.world_rules(action_type))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/autonomy/scene-expansions")
+async def autonomy_scene_expansions(
+    limit: int = Query(100, ge=1, le=1000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.scene_expansion_proposals(limit))
+    finally:
+        store.close()
+
+
 @router.get("/ecobot/state")
 async def state(
     agent_id: str = "ecobot",
