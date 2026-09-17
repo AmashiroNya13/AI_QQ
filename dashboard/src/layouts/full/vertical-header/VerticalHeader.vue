@@ -935,16 +935,15 @@ onMounted(async () => {
         'mobile-logo': $vuetify.display.xs,
       }"
     >
-      <span class="logo-text Outfit"
-        >Astr<span class="logo-text bot-text-wrapper"
-          >Bot
-          <img
-            v-if="isChristmas"
-            src="@/assets/images/xmas-hat.png"
-            alt="Christmas hat"
-            class="xmas-hat"
-          /> </span
-      ></span>
+      <span class="logo-text Outfit">
+        Ecobot
+        <img
+          v-if="isChristmas"
+          src="@/assets/images/xmas-hat.png"
+          alt="Christmas hat"
+          class="xmas-hat"
+        />
+      </span>
       <span class="version-text hidden-xs">{{ botCurrVersion }}</span>
     </div>
 

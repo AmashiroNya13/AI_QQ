@@ -180,7 +180,7 @@ onMounted(load);
         <v-window-item value="runtime">
           <section class="settings-section">
             <h2>总控与触发</h2>
-            <div class="setting-row"><div><strong>启用行为链</strong><p>关闭后保留 AstrBot 原有消息链，Ecobot 不归档也不参与回复</p></div><v-switch v-model="form.enabled" color="primary" hide-details /></div>
+            <div class="setting-row"><div><strong>启用行为链</strong><p>关闭后保留基础消息链，Ecobot 不归档也不参与回复</p></div><v-switch v-model="form.enabled" color="primary" hide-details /></div>
             <div class="setting-row"><div><strong>允许空闲主动表达</strong><p>空闲思考可以主动发消息；关闭后只更新内部判断，不向群内发送</p></div><v-switch v-model="form.idle_allow_proactive_expression" color="primary" hide-details /></div>
             <div class="field-grid">
               <v-text-field v-model.number="form.passive_interval_seconds" type="number" min="0" max="86400" label="被动消息合并间隔" suffix="秒" hint="间隔内的新消息合并为一次刷新；0 表示不延迟" persistent-hint variant="outlined" />
@@ -226,7 +226,7 @@ onMounted(load);
         <v-window-item value="persona">
           <section class="settings-section">
             <h2>人格与连续状态</h2>
-            <div class="setting-row"><div><strong>继承会话人格</strong><p>把 AstrBot 当前会话选中的人格提示词加入每个思考阶段</p></div><v-switch v-model="form.persona_enabled" color="primary" hide-details /></div>
+            <div class="setting-row"><div><strong>继承会话人格</strong><p>把当前会话选中的人格提示词加入每个思考阶段</p></div><v-switch v-model="form.persona_enabled" color="primary" hide-details /></div>
             <div class="setting-row"><div><strong>允许状态更新</strong><p>规划阶段可以维护活动、场景、情绪、精力、目标和预计结束时间</p></div><v-switch v-model="form.state_update_enabled" color="primary" hide-details /></div>
           </section>
         </v-window-item>
@@ -310,7 +310,7 @@ onMounted(load);
             <h2>阶段调用追踪</h2>
             <div class="setting-row"><div><strong>记录 AI 阶段调用</strong><p>保存阶段、模型、耗时、输出和错误，便于定位思考链问题</p></div><v-switch v-model="form.trace_enabled" color="primary" hide-details /></div>
             <div class="setting-row"><div><strong>保存完整提示词</strong><p>开启后追踪包含系统与输入提示词；其中可能含聊天内容和人格设定</p></div><v-switch v-model="form.trace_include_prompts" color="primary" hide-details /></div>
-            <div class="setting-row"><div><strong>输出中文调试日志</strong><p>在 AstrBot 实时日志和日志文件中显示批次、五阶段调用、模型思考结果、工具执行与停止原因</p></div><v-switch v-model="form.debug_log_enabled" color="primary" hide-details /></div>
+            <div class="setting-row"><div><strong>输出中文调试日志</strong><p>在实时日志和日志文件中显示批次、模型调用、思考结果、工具执行与停止原因</p></div><v-switch v-model="form.debug_log_enabled" color="primary" hide-details /></div>
             <div class="setting-row"><div><strong>日志显示完整输入</strong><p>额外把系统提示词和输入提示词写入日志；可能很长并包含聊天、记忆与人格内容</p></div><v-switch v-model="form.debug_log_include_prompts" color="primary" hide-details /></div>
             <v-text-field v-model.number="form.trace_max_records" class="single-field" type="number" min="100" max="100000" label="最大追踪记录数" suffix="条" hint="超过上限时自动删除最旧记录" persistent-hint variant="outlined" />
           </section>

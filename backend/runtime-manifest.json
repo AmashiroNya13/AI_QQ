@@ -9,15 +9,15 @@
   "sourceCommit": null,
   "webui": {
     "version": "4.28.0",
-    "indexSha256": "b199dec45ecf213264e5b9ca7efc413e7c91729db2e27cbf0707652b9cdcb2af",
+    "indexSha256": "0640b6ec1049611597772bfd2e0533fa224b066876d0e2862be060b545f2b3e8",
     "entryAssets": [
+      {
+        "path": "assets/index-CuxSTlQ5.js",
+        "sha256": "b04ac54062496b54a1eb1424432882798a304906839339f009804f17a593f878"
+      },
       {
         "path": "assets/index-DhrK-iEp.css",
         "sha256": "c54e1d25f921656bf835a38ad7d94eaafbf2431bdbb800d2c514430145b54280"
-      },
-      {
-        "path": "assets/index-DxCw7D_C.js",
-        "sha256": "6888b513be8802314bef1a422120ce77f792c8a247b7d7a0a38e6ab86b91d08b"
       }
     ]
   }
