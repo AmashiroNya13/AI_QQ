@@ -1,0 +1,24 @@
+{
+  "mode": "cpython-runtime",
+  "python": "python\\python.exe",
+  "entrypoint": "launch_backend.py",
+  "app": "app",
+  "desktopVersion": "4.28.0",
+  "coreVersion": "4.28.0",
+  "sourceRef": "v4.28.0",
+  "sourceCommit": "a412146401426c0cdff8bbefb8627a03da519da8",
+  "webui": {
+    "version": "4.28.0",
+    "indexSha256": "a1b0b0158d5280f7766b2b7309a5018b1848bbfd8e417be516f804bf5e219615",
+    "entryAssets": [
+      {
+        "path": "assets/index-m5_EgLj4.js",
+        "sha256": "80cccef4a238476b43f92393399f347b1f474a64a28bce18e69176344b422f9e"
+      },
+      {
+        "path": "assets/index-C7r6Dwgz.css",
+        "sha256": "5a7d3bbafe83af922ba0d9d1f893f36cf79ff33829acc8ffd2a91f7220cddb54"
+      }
+    ]
+  }
+}

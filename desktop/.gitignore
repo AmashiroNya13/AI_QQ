@@ -1,0 +1,32 @@
+.DS_Store
+.claude/
+.pnpm-store/
+.wrangler/
+
+# dependencies/cache
+node_modules/
+vendor/
+runtime/
+
+# generated resources
+resources/backend/
+resources/webui/
+docs/plans/
+
+# rust/tauri build outputs
+src-tauri/target/
+src-tauri/gen/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# python cache
+__pycache__/
+*.py[cod]
+
+# local helper scripts
+.astrbot-reset-env.sh

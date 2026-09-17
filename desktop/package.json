@@ -1,0 +1,20 @@
+{
+  "name": "ecobot-desktop-tauri",
+  "version": "4.28.0",
+  "description": "Ecobot desktop shell powered by Tauri",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "sync:version": "node scripts/prepare-resources.mjs version",
+    "test:prepare-resources": "node --test \"scripts/**/*.test.mjs\"",
+    "prepare:webui": "node scripts/prepare-resources.mjs webui",
+    "prepare:backend": "node scripts/prepare-resources.mjs backend",
+    "prepare:resources": "node scripts/prepare-resources.mjs all",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.0",
+    "yaml": "^2.8.1"
+  }
+}

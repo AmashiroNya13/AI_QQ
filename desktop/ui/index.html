@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Ecobot</title>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --text: #1b1c1d;
+        --muted: #6b7280;
+        --card: #ffffff;
+        --border: #e5e7eb;
+        --accent: #3c96ca;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        font-family:
+          "SF Pro Display",
+          "PingFang SC",
+          "Segoe UI",
+          sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+
+      .shell {
+        min-height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .panel {
+        width: min(420px, 100%);
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 24px 24px 20px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+      }
+
+      .brand {
+        width: 80px;
+        height: 80px;
+        display: block;
+        margin: 0 0 12px;
+        border-radius: 16px;
+      }
+
+      .title {
+        font-size: 26px;
+        font-weight: 700;
+        margin: 0 0 6px;
+      }
+
+      .desc {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 14px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .bar-wrap {
+        margin-top: 18px;
+        width: 100%;
+        height: 6px;
+        border-radius: 999px;
+        background: #edf2f7;
+        overflow: hidden;
+      }
+
+      .bar {
+        width: 45%;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #3c96ca 0%, #5aa9d6 100%);
+        animation: slide 1.25s ease-in-out infinite;
+      }
+
+      .status {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+        animation: pulse 1.6s infinite ease-out;
+      }
+
+      .panel.error {
+        border-color: #f3b6b2;
+      }
+
+      .panel.error .bar-wrap {
+        display: none;
+      }
+
+      .panel.error .status {
+        color: #b42318;
+        align-items: flex-start;
+      }
+
+      .panel.error .dot {
+        flex: 0 0 auto;
+        margin-top: 6px;
+        background: #d92d20;
+        box-shadow: none;
+        animation: none;
+      }
+
+      @keyframes slide {
+        0% {
+          transform: translateX(-65%);
+        }
+        100% {
+          transform: translateX(185%);
+        }
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+        }
+        70% {
+          box-shadow: 0 0 0 14px rgba(59, 130, 246, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <img class="brand" src="./astrbot-logo.png" alt="Ecobot Logo" />
+        <h1 id="startup-title" class="title"></h1>
+        <p id="startup-desc" class="desc"></p>
+        <div class="bar-wrap" aria-hidden="true">
+          <div class="bar"></div>
+        </div>
+        <div class="status">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="startup-status" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+    </main>
+    <script src="./startup-copy.js"></script>
+    <script>
+      (() => {
+        const title = document.getElementById("startup-title");
+        const desc = document.getElementById("startup-desc");
+        const status = document.getElementById("startup-status");
+        const panel = document.querySelector(".panel");
+        if (!title || !desc || !status || !panel) return;
+        if (!window.astrbot || !window.astrbot.startupShell) return;
+
+        const startupShell = window.astrbot.startupShell;
+        const { STARTUP_MODES, STARTUP_COPY } = startupShell;
+
+        const resolveLocaleKey = () => {
+          const locale =
+            typeof navigator !== "undefined" && typeof navigator.language === "string"
+              ? navigator.language
+              : "zh-CN";
+          return locale.toLowerCase().startsWith("en") ? "en" : "zh";
+        };
+
+        const localeKey = resolveLocaleKey();
+        const resolveStartupCopy = (mode) => {
+          const languageCopy = STARTUP_COPY[localeKey] || STARTUP_COPY.zh;
+          return languageCopy[mode] || languageCopy[STARTUP_MODES.LOADING];
+        };
+
+        const applyStartupMode = (mode) => {
+          const next = resolveStartupCopy(mode);
+          title.textContent = next.title;
+          desc.textContent = next.desc;
+          if (status.textContent === next.status) return;
+          status.textContent = next.status;
+        };
+
+        window.__astrbotSetStartupMode = (mode) => {
+          applyStartupMode(typeof mode === "string" ? mode : STARTUP_MODES.LOADING);
+        };
+        window.__astrbotShowStartupError = (message) => {
+          const isEnglish = localeKey === "en";
+          panel.classList.add("error");
+          title.textContent = isEnglish ? "Ecobot failed to start" : "Ecobot 启动失败";
+          desc.textContent =
+            typeof message === "string" && message.trim()
+              ? message
+              : isEnglish
+                ? "An unknown startup error occurred."
+                : "启动时发生未知错误。";
+          status.textContent = isEnglish
+            ? "Resolve the issue above, then restart Ecobot Desktop."
+            : "请按上方提示处理后，重新启动 Ecobot 桌面端。";
+        };
+        applyStartupMode(STARTUP_MODES.LOADING);
+        if (typeof window.__astrbotPendingStartupError === "string") {
+          window.__astrbotShowStartupError(window.__astrbotPendingStartupError);
+        }
+      })();
+    </script>
+  </body>
+</html>

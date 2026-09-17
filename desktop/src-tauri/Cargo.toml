@@ -1,0 +1,45 @@
+[package]
+name = "ecobot-desktop-tauri"
+version = "4.28.0"
+description = "Ecobot desktop shell powered by Tauri"
+authors = ["Ecobot"]
+license = "AGPL-3.0"
+edition = "2021"
+rust-version = "1.86"
+build = "build.rs"
+
+[build-dependencies]
+serde_json = "1.0"
+sha2 = "0.10"
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock"] }
+getrandom = "0.3"
+home = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+semver = "1.0"
+sha2 = "0.10"
+shlex = "1.3"
+tauri = { version = "2.0", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.0"
+tauri-plugin-process = "2.0"
+tauri-plugin-single-instance = "2.0"
+tauri-plugin-updater = "2.0"
+url = "2.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"

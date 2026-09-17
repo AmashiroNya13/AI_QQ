@@ -1,0 +1,105 @@
+name: "🐛 Bug Report / 问题反馈"
+title: "[Bug] "
+description: Report a reproducible bug in AstrBot Desktop. / 反馈 AstrBot Desktop 可复现问题。
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this issue. Please provide reproducible steps and logs.
+        感谢反馈问题。请尽量提供可复现步骤和日志，信息不足的问题可能无法排查。
+
+  - type: textarea
+    attributes:
+      label: What happened? / 实际发生了什么？
+      description: Describe the actual behavior.
+      placeholder: A clear and specific description of the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected behavior / 预期行为
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Please provide minimal reproducible steps.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Desktop version / 桌面端版本
+      description: e.g. v4.17.6
+      placeholder: v4.x.x
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Installation channel / 安装来源
+      multiple: false
+      options:
+        - GitHub Release installer
+        - Built from source
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: OS / 操作系统
+      multiple: false
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Architecture / 架构
+      description: e.g. amd64 / arm64
+      placeholder: amd64
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Upstream AstrBot ref used by desktop build (optional) / 桌面构建使用的上游 AstrBot Ref（可选）
+      placeholder: v4.17.6 / master / commit SHA
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Logs, screenshots, and additional context / 日志、截图与补充信息
+      description: |
+        Please include desktop logs, backend logs, screenshots, and (if relevant) GitHub Actions links.
+        请附上桌面端日志、后端日志、截图，必要时附 Actions 链接。
+      placeholder: Paste logs/screenshots/links here.
+    validations:
+      required: true
+
+  - type: checkboxes
+    attributes:
+      label: Willing to submit a PR? / 是否愿意提交 PR？
+      options:
+        - label: I am willing to submit a PR to fix this issue. / 我愿意提交 PR 修复此问题。
+
+  - type: checkboxes
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow the project's Code of Conduct. / 我同意遵守项目行为准则。
+          required: true

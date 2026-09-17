@@ -1,0 +1,1 @@
+"""Ecobot behavior decision stage."""

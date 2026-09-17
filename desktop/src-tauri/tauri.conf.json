@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Ecobot",
+  "version": "4.28.0",
+  "identifier": "local.ecobot.desktop",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "pnpm run prepare:resources",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ecobot",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true,
+        "visible": false,
+        "fullscreen": false,
+        "backgroundThrottling": "disabled",
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": "all",
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "wix": {
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "compression": "zlib",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "installerHooks": "windows/nsis-installer-hooks.nsh"
+      }
+    },
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "../resources/backend": "backend",
+      "../resources/webui": "webui",
+      "windows/kill-backend-processes.ps1": "kill-backend-processes.ps1"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFOEY1REYyNTZEQ0VBMDkKUldRSjZ0eFc4bDJQbnNqTDVIUmNudXEwcXVMUWVPb0RxZHRiNHR0Y3JuRlJVSDlLRzhDWE9ZSkMK",
+      "endpoints": [
+        "https://releases.astrbot.app/desktop/channels/stable/latest.json"
+      ],
+      "channelEndpoints": {
+        "stable": "https://releases.astrbot.app/desktop/channels/stable/latest.json",
+        "nightly": "https://github.com/AstrBotDevs/AstrBot-desktop/releases/download/nightly/latest-nightly.json"
+      },
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import * as runtimeArchUtils from './runtime-arch-utils.mjs';
+import {
+  isWindowsArm64BundledRuntime,
+  resolveBundledRuntimeArch,
+} from './runtime-arch-utils.mjs';
+
+test('resolveBundledRuntimeArch defaults Windows ARM64 backend runtime to x64', () => {
+  assert.equal(
+    resolveBundledRuntimeArch({ platform: 'win32', arch: 'arm64', env: {} }),
+    'amd64',
+  );
+});
+
+test('resolveBundledRuntimeArch honors explicit target arch on emulated x64 Node', () => {
+  assert.equal(
+    resolveBundledRuntimeArch({
+      platform: 'win32',
+      arch: 'x64',
+      env: { ASTRBOT_DESKTOP_TARGET_ARCH: 'arm64' },
+    }),
+    'amd64',
+  );
+
+  assert.equal(
+    resolveBundledRuntimeArch({
+      platform: 'win32',
+      arch: 'x64',
+      env: {
+        ASTRBOT_DESKTOP_TARGET_ARCH: 'arm64',
+        ASTRBOT_DESKTOP_WINDOWS_ARM_BACKEND_ARCH: 'arm64',
+      },
+    }),
+    'arm64',
+  );
+});
+
+test('isWindowsArm64BundledRuntime uses explicit bundled runtime arch handoff', () => {
+  assert.equal(
+    isWindowsArm64BundledRuntime({
+      platform: 'win32',
+      arch: 'x64',
+      env: { ASTRBOT_DESKTOP_BUNDLED_RUNTIME_ARCH: 'arm64' },
+    }),
+    true,
+  );
+
+  assert.equal(
+    isWindowsArm64BundledRuntime({
+      platform: 'win32',
+      arch: 'x64',
+      env: { ASTRBOT_DESKTOP_BUNDLED_RUNTIME_ARCH: 'amd64' },
+    }),
+    false,
+  );
+});
+
+test('isWindowsArm64BundledRuntime returns false for unsupported Windows host arch', () => {
+  assert.equal(
+    isWindowsArm64BundledRuntime({
+      platform: 'win32',
+      arch: 'ia32',
+      env: {},
+    }),
+    false,
+  );
+});
+
+test('hasRuntimeArchOverride returns booleans for recognized override env vars', () => {
+  assert.equal(typeof runtimeArchUtils.hasRuntimeArchOverride, 'function');
+  assert.equal(runtimeArchUtils.hasRuntimeArchOverride({}), false);
+  assert.equal(
+    runtimeArchUtils.hasRuntimeArchOverride({
+      ASTRBOT_DESKTOP_BUNDLED_RUNTIME_ARCH: '   ',
+      ASTRBOT_DESKTOP_TARGET_ARCH: ' ',
+    }),
+    false,
+  );
+  assert.equal(
+    runtimeArchUtils.hasRuntimeArchOverride({ ASTRBOT_DESKTOP_BUNDLED_RUNTIME_ARCH: 'arm64' }),
+    true,
+  );
+  assert.equal(
+    runtimeArchUtils.hasRuntimeArchOverride({ ASTRBOT_DESKTOP_TARGET_ARCH: 'arm64' }),
+    true,
+  );
+});

@@ -1,0 +1,438 @@
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { test } from 'node:test';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDir, '..', '..');
+const normalizeModule = 'scripts.ci.normalize_release_artifact_filenames';
+const generateModule = 'scripts.ci.generate_tauri_latest_json';
+
+const runPythonRaw = (moduleName, args, cwd = projectRoot) =>
+  spawnSync('python3', ['-m', moduleName, ...args], {
+    cwd,
+    encoding: 'utf8',
+  });
+
+const runPython = (moduleName, args, cwd = projectRoot) => {
+  const result = runPythonRaw(moduleName, args, cwd);
+
+  if (result.status !== 0) {
+    throw new Error(
+      [
+        `Command failed: python3 -m ${moduleName} ${args.join(' ')}`,
+        result.stdout.trim(),
+        result.stderr.trim(),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+
+  return result;
+};
+
+test('package entrypoints are invokable with python -m', () => {
+  const normalizeResult = runPythonRaw(normalizeModule, ['--help']);
+  const generateResult = runPythonRaw(generateModule, ['--help']);
+
+  assert.equal(normalizeResult.status, 0, normalizeResult.stderr);
+  assert.equal(generateResult.status, 0, generateResult.stderr);
+});
+
+test('detect_artifact_extension prefers the longest matching suffix at call time', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      `
+import pathlib
+from scripts.ci import normalize_release_artifact_filenames as module
+module.ARTIFACT_EXTENSIONS = ('.sig', '.app.tar.gz.sig')
+print(module.detect_artifact_extension(pathlib.Path('AstrBot.app.tar.gz.sig')) or '')
+`,
+    ],
+    { cwd: projectRoot, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), '.app.tar.gz.sig');
+});
+
+test('generate_tauri_latest_json ignores non-artifact signature files', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2_windows_amd64_setup.exe.sig'),
+      'windows-signature',
+      'utf8',
+    );
+    await writeFile(path.join(artifactsDir, 'unexpected.sig'), 'bad-signature', 'utf8');
+
+    const result = runPythonRaw(generateModule, [
+      '--artifacts-root',
+      artifactsDir,
+      '--repo',
+      'AstrBotDevs/AstrBot-desktop',
+      '--tag',
+      'nightly',
+      '--version',
+      '4.19.2-nightly.20260306.7ac169c5',
+      '--output',
+      path.join(artifactsDir, 'latest.json'),
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr.trim(), '');
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('generate_tauri_latest_json rejects duplicate platform artifacts', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2_windows_amd64_setup.exe.sig'),
+      'canonical-signature',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2_x64-setup.exe.sig'),
+      'legacy-signature',
+      'utf8',
+    );
+
+    const result = runPythonRaw(generateModule, [
+      '--artifacts-root',
+      artifactsDir,
+      '--repo',
+      'AstrBotDevs/AstrBot-desktop',
+      '--tag',
+      'nightly',
+      '--version',
+      '4.19.2-nightly.20260306.7ac169c5',
+      '--output',
+      path.join(artifactsDir, 'latest.json'),
+    ]);
+
+    assert.notEqual(result.status, 0, 'expected duplicate platform artifacts to fail');
+    assert.match(result.stderr, /duplicate windows artifact/i);
+    assert.match(result.stderr, /windows-x86_64/);
+    assert.doesNotMatch(result.stderr, /Traceback/);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('generate_tauri_latest_json surfaces invalid artifact names without traceback noise', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2_windows_amd64_portable.exe.sig'),
+      'broken-signature',
+      'utf8',
+    );
+
+    const result = runPythonRaw(generateModule, [
+      '--artifacts-root',
+      artifactsDir,
+      '--repo',
+      'AstrBotDevs/AstrBot-desktop',
+      '--tag',
+      'nightly',
+      '--version',
+      '4.19.2-nightly.20260306.7ac169c5',
+      '--output',
+      path.join(artifactsDir, 'latest.json'),
+    ]);
+
+    assert.notEqual(result.status, 0, 'expected invalid artifact name to fail');
+    assert.match(result.stderr, /unexpected windows artifact name/i);
+    assert.doesNotMatch(result.stderr, /Traceback/);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('normalize_release_artifact_filenames strict unmatched mode surfaces naming errors without traceback noise', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(path.join(artifactsDir, 'AstrBot_4.19.2_windows_portable.exe'), 'portable', 'utf8');
+
+    const result = runPythonRaw(normalizeModule, ['--root', artifactsDir, '--strict-unmatched']);
+
+    assert.notEqual(result.status, 0, 'expected strict unmatched artifact normalization to fail');
+    assert.match(result.stderr, /unmatched naming pattern/i);
+    assert.doesNotMatch(result.stderr, /Traceback/);
+    await access(path.join(artifactsDir, 'AstrBot_4.19.2_windows_portable.exe'), fsConstants.F_OK);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('normalize_release_artifact_filenames strict unmatched mode does not rename unmatched nightly files', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    const originalName = 'AstrBot_4.19.2-nightly.20260306.7ac169c5_windows_portable.exe';
+    const originalPath = path.join(artifactsDir, originalName);
+    await writeFile(originalPath, 'portable', 'utf8');
+
+    const result = runPythonRaw(normalizeModule, [
+      '--root',
+      artifactsDir,
+      '--build-mode',
+      'nightly',
+      '--source-git-ref',
+      '7ac169c5e81cee0acc1416d22d7ee4464a507a8d',
+      '--strict-unmatched',
+    ]);
+
+    assert.notEqual(result.status, 0, 'expected strict unmatched nightly normalization to fail');
+    await access(originalPath, fsConstants.F_OK);
+    await assert.rejects(
+      access(
+        path.join(artifactsDir, 'AstrBot_4.19.2_windows_portable_nightly_7ac169c5.exe'),
+        fsConstants.F_OK,
+      ),
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('release artifact normalization keeps updater signatures aligned for latest.json generation', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    const sourceSha = '7ac169c5e81cee0acc1416d22d7ee4464a507a8d';
+
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_x64-setup.exe'),
+      'exe',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_x64-setup.exe.sig'),
+      'windows-signature',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_macos_arm64.app.tar.gz'),
+      'tarball',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_macos_arm64.app.tar.gz.sig'),
+      'macos-signature',
+      'utf8',
+    );
+
+    runPython(
+      normalizeModule,
+      ['--root', artifactsDir, '--build-mode', 'nightly', '--source-git-ref', sourceSha],
+      projectRoot,
+    );
+
+    const normalizedWindows = path.join(
+      artifactsDir,
+      'AstrBot_4.19.2_windows_amd64_setup_nightly_7ac169c5.exe.sig',
+    );
+    const normalizedMacos = path.join(
+      artifactsDir,
+      'AstrBot_4.19.2_macos_arm64_nightly_7ac169c5.app.tar.gz.sig',
+    );
+
+    await access(normalizedWindows, fsConstants.F_OK);
+    await access(normalizedMacos, fsConstants.F_OK);
+
+    const outputPath = path.join(artifactsDir, 'latest.json');
+    runPython(
+      generateModule,
+      [
+        '--artifacts-root',
+        artifactsDir,
+        '--repo',
+        'AstrBotDevs/AstrBot-desktop',
+        '--tag',
+        'nightly',
+        '--version',
+        '4.19.2-nightly.20260306.7ac169c5',
+        '--output',
+        outputPath,
+      ],
+      projectRoot,
+    );
+
+    const payload = JSON.parse(await readFile(outputPath, 'utf8'));
+    assert.deepEqual(payload.platforms['windows-x86_64'], {
+      signature: 'windows-signature',
+      url: 'https://github.com/AstrBotDevs/AstrBot-desktop/releases/download/nightly/AstrBot_4.19.2_windows_amd64_setup_nightly_7ac169c5.exe',
+    });
+    assert.deepEqual(payload.platforms['darwin-aarch64'], {
+      signature: 'macos-signature',
+      url: 'https://github.com/AstrBotDevs/AstrBot-desktop/releases/download/nightly/AstrBot_4.19.2_macos_arm64_nightly_7ac169c5.app.tar.gz',
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('release artifact normalization canonicalizes linux AppImage assets for latest.json generation', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    const sourceSha = '7ac169c5e81cee0acc1416d22d7ee4464a507a8d';
+
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_aarch64.AppImage'),
+      'appimage',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'AstrBot_4.19.2-nightly.20260306.7ac169c5_aarch64.AppImage.sig'),
+      'linux-signature',
+      'utf8',
+    );
+
+    runPython(
+      normalizeModule,
+      ['--root', artifactsDir, '--build-mode', 'nightly', '--source-git-ref', sourceSha],
+      projectRoot,
+    );
+
+    const normalizedLinux = path.join(
+      artifactsDir,
+      'AstrBot_4.19.2_linux_arm64_nightly_7ac169c5.AppImage',
+    );
+    const normalizedLinuxSig = path.join(
+      artifactsDir,
+      'AstrBot_4.19.2_linux_arm64_nightly_7ac169c5.AppImage.sig',
+    );
+
+    await access(normalizedLinux, fsConstants.F_OK);
+    await access(normalizedLinuxSig, fsConstants.F_OK);
+
+    const outputPath = path.join(artifactsDir, 'latest.json');
+    runPython(
+      generateModule,
+      [
+        '--artifacts-root',
+        artifactsDir,
+        '--repo',
+        'AstrBotDevs/AstrBot-desktop',
+        '--tag',
+        'nightly',
+        '--version',
+        '4.19.2-nightly.20260306.7ac169c5',
+        '--asset-base-url',
+        'https://releases.astrbot.app/desktop/releases/4.19.2/run-1',
+        '--output',
+        outputPath,
+      ],
+      projectRoot,
+    );
+
+    const payload = JSON.parse(await readFile(outputPath, 'utf8'));
+    assert.deepEqual(payload.platforms['linux-aarch64-appimage'], {
+      signature: 'linux-signature',
+      url: 'https://releases.astrbot.app/desktop/releases/4.19.2/run-1/AstrBot_4.19.2_linux_arm64_nightly_7ac169c5.AppImage',
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('release artifact pipeline accepts stable AppImage names emitted by Tauri', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'astrbot-release-artifacts-'));
+
+  try {
+    const artifactsDir = path.join(tempDir, 'release-artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+
+    await writeFile(
+      path.join(artifactsDir, 'astrbot-desktop_4.27.3_amd64.AppImage'),
+      'appimage',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'astrbot-desktop_4.27.3_amd64.AppImage.sig'),
+      'linux-signature',
+      'utf8',
+    );
+
+    runPython(
+      normalizeModule,
+      ['--root', artifactsDir, '--build-mode', 'tag-poll', '--source-git-ref', 'v4.27.3'],
+      projectRoot,
+    );
+
+    const normalizedLinux = path.join(
+      artifactsDir,
+      'AstrBot_4.27.3_linux_amd64.AppImage',
+    );
+    const normalizedLinuxSig = `${normalizedLinux}.sig`;
+    await access(normalizedLinux, fsConstants.F_OK);
+    await access(normalizedLinuxSig, fsConstants.F_OK);
+
+    const outputPath = path.join(artifactsDir, 'latest-stable.json');
+    runPython(
+      generateModule,
+      [
+        '--artifacts-root',
+        artifactsDir,
+        '--repo',
+        'AstrBotDevs/AstrBot-desktop',
+        '--tag',
+        'v4.27.3',
+        '--version',
+        '4.27.3',
+        '--channel',
+        'stable',
+        '--asset-base-url',
+        'https://releases.astrbot.app/desktop/releases/4.27.3/run-1',
+        '--output',
+        outputPath,
+      ],
+      projectRoot,
+    );
+
+    const payload = JSON.parse(await readFile(outputPath, 'utf8'));
+    assert.deepEqual(payload.platforms['linux-x86_64-appimage'], {
+      signature: 'linux-signature',
+      url: 'https://releases.astrbot.app/desktop/releases/4.27.3/run-1/AstrBot_4.27.3_linux_amd64.AppImage',
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

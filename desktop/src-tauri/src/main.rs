@@ -1,0 +1,52 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod app_constants;
+mod app_helpers;
+mod app_runtime;
+mod app_runtime_events;
+mod app_types;
+
+mod backend;
+mod bridge;
+mod desktop_auth;
+mod desktop_settings;
+mod desktop_state;
+
+mod exit_state;
+mod lifecycle;
+
+mod launch_plan;
+mod logging;
+mod packaged_webui;
+mod process_control;
+mod restart_backend_flow;
+mod runtime_paths;
+mod shell_locale;
+mod startup_mode;
+mod startup_task;
+
+mod tray;
+mod ui_dispatch;
+mod update_channel;
+mod webui_paths;
+mod window;
+mod windows_shutdown;
+
+pub(crate) use app_constants::*;
+pub(crate) use app_helpers::{
+    append_desktop_log, append_restart_log, append_shutdown_log, append_startup_log,
+    backend_path_override, build_debug_command, inject_desktop_bridge,
+    navigate_main_window_to_backend,
+};
+pub(crate) use app_types::{
+    AtomicFlagGuard, BackendBridgeResult, BackendBridgeState, BackendState,
+    DesktopAuthBridgeResult, LaunchPlan, RuntimeManifest, RuntimeWebuiAttestation, TrayMenuState,
+};
+pub(crate) use desktop_settings::DesktopSettingsCache;
+
+fn main() {
+    #[cfg(target_os = "linux")]
+    app_runtime::configure_linux_webkit_workaround();
+
+    app_runtime::run();
+}

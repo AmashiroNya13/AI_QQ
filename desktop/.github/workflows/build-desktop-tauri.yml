@@ -1,0 +1,923 @@
+name: Build Desktop Tauri
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_git_url:
+        description: AstrBot source git URL
+        required: false
+        default: https://github.com/AstrBotDevs/AstrBot.git
+      source_git_ref:
+        description: Optional stable tag (vMAJOR.MINOR.PATCH) for `tag-poll`, or required source ref for `custom` (branch/tag/commit SHA).
+        required: false
+        default: ""
+      publish_release:
+        description: Publish GitHub Release after successful builds
+        required: false
+        type: boolean
+        default: true
+      build_mode:
+        description: >-
+          Build mode (`tag-poll` | `nightly` | `custom`): `nightly` (default) always builds latest upstream commit,
+          `tag-poll` builds latest stable upstream tag (or stable tag override), `custom` builds the explicit `source_git_ref`
+        required: false
+        type: choice
+        default: nightly
+        options:
+          - tag-poll
+          - nightly
+          - custom
+  schedule:
+    # Hourly tag-poll (exclude the dedicated nightly window at 03:xx UTC).
+    - cron: '0 0-2,4-23 * * *'
+    # Dedicated daily nightly build.
+    - cron: '7 3 * * *'
+
+permissions:
+  contents: read
+
+env:
+  ASTRBOT_SOURCE_GIT_URL: ${{ vars.ASTRBOT_SOURCE_GIT_URL || 'https://github.com/AstrBotDevs/AstrBot.git' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  ASTRBOT_SOURCE_GIT_REF: ${{ vars.ASTRBOT_SOURCE_GIT_REF || 'master' }}
+  ASTRBOT_NIGHTLY_SOURCE_GIT_REF: ${{ vars.ASTRBOT_NIGHTLY_SOURCE_GIT_REF || 'master' }}
+  ASTRBOT_NIGHTLY_SCHEDULE_CRON: ${{ vars.ASTRBOT_NIGHTLY_SCHEDULE_CRON || '7 3 * * *' }}
+  ASTRBOT_NIGHTLY_UTC_HOUR: ${{ vars.ASTRBOT_NIGHTLY_UTC_HOUR || '3' }}
+  ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY: ${{ vars.ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY || '' }}
+  R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID || '' }}
+  R2_BUCKET: ${{ vars.R2_BUCKET || 'astrbot-desktop-releases' }}
+  R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL || 'https://releases.astrbot.app' }}
+
+jobs:
+  resolve_build_context:
+    name: Resolve Build Context
+    runs-on: ubuntu-latest
+    outputs:
+      source_git_url: ${{ steps.resolve.outputs.source_git_url }}
+      source_git_ref: ${{ steps.resolve.outputs.source_git_ref }}
+      astrbot_version: ${{ steps.resolve.outputs.astrbot_version }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+      build_mode: ${{ steps.resolve.outputs.build_mode }}
+      publish_release: ${{ steps.resolve.outputs.publish_release }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_name: ${{ steps.resolve.outputs.release_name }}
+      release_prerelease: ${{ steps.resolve.outputs.release_prerelease }}
+      release_make_latest: ${{ steps.resolve.outputs.release_make_latest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Toolchains
+        uses: ./.github/actions/setup-toolchains
+        with:
+          setup-node: 'false'
+          python-version: '3.12'
+
+      - name: Resolve source, version and trigger guard
+        id: resolve
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ env.ASTRBOT_SOURCE_GIT_URL }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ env.ASTRBOT_SOURCE_GIT_REF }}
+          WORKFLOW_SOURCE_GIT_URL: ${{ github.event.inputs.source_git_url }}
+          WORKFLOW_SOURCE_GIT_REF: ${{ github.event.inputs.source_git_ref }}
+          WORKFLOW_PUBLISH_RELEASE: ${{ github.event.inputs.publish_release }}
+          WORKFLOW_BUILD_MODE: ${{ github.event.inputs.build_mode }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
+          ASTRBOT_NIGHTLY_SOURCE_GIT_REF: ${{ env.ASTRBOT_NIGHTLY_SOURCE_GIT_REF }}
+          ASTRBOT_NIGHTLY_SCHEDULE_CRON: ${{ env.ASTRBOT_NIGHTLY_SCHEDULE_CRON }}
+          ASTRBOT_NIGHTLY_UTC_HOUR: ${{ env.ASTRBOT_NIGHTLY_UTC_HOUR }}
+        run: bash scripts/ci/resolve-build-context.sh
+
+
+  sync_repo_version:
+    name: Sync Repository Version
+    needs: resolve_build_context
+    if: ${{ github.event_name == 'schedule' && needs.resolve_build_context.outputs.should_build == 'true' && needs.resolve_build_context.outputs.build_mode == 'tag-poll' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Toolchains
+        uses: ./.github/actions/setup-toolchains
+        with:
+          setup-python: 'false'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.3
+        with:
+          version: 10.28.2
+
+      - name: Resolve desktop version env
+        id: desktop_version
+        shell: bash
+        run: bash scripts/ci/resolve-desktop-version.sh "${{ needs.resolve_build_context.outputs.astrbot_version }}" "${GITHUB_OUTPUT}"
+
+      - name: Sync desktop version to upstream tag
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ needs.resolve_build_context.outputs.source_git_url }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_DESKTOP_VERSION: ${{ steps.desktop_version.outputs.prefixed }}
+        run: make update
+
+      - name: Commit and push version files
+        env:
+          ASTRBOT_VERSION: ${{ steps.desktop_version.outputs.normalized }}
+          TARGET_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          changed_files="$(git status --porcelain -- package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json)"
+          if [ -z "${changed_files}" ]; then
+            echo "Version files are already up to date. Nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore(version): sync desktop version to v${ASTRBOT_VERSION}"
+
+          git fetch origin "${TARGET_REF_NAME}"
+          if ! git pull --rebase origin "${TARGET_REF_NAME}"; then
+            echo "::warning::Failed to rebase onto origin/${TARGET_REF_NAME}. Skipping push to avoid noisy failures."
+            git rebase --abort || true
+            exit 0
+          fi
+
+          if ! git push origin "HEAD:${TARGET_REF_NAME}"; then
+            echo "::warning::Push to ${TARGET_REF_NAME} was rejected (likely branch protection or race). Skipping."
+            exit 0
+          fi
+
+  build-linux:
+    needs:
+      - resolve_build_context
+      - sync_repo_version
+    if: ${{ always() && needs.resolve_build_context.outputs.should_build == 'true' && (needs.sync_repo_version.result == 'success' || needs.sync_repo_version.result == 'skipped') }}
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup desktop build environment
+        uses: ./.github/actions/setup-desktop-build
+
+      - name: Resolve desktop version env
+        id: desktop_version
+        shell: bash
+        run: bash scripts/ci/resolve-desktop-version.sh "${{ needs.resolve_build_context.outputs.astrbot_version }}" "${GITHUB_OUTPUT}"
+
+      - name: Sync and verify desktop version for this build
+        uses: ./.github/actions/sync-desktop-version
+        with:
+          astrbot_version: ${{ steps.desktop_version.outputs.normalized }}
+
+      - name: Build desktop installers (Linux)
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ needs.resolve_build_context.outputs.source_git_url }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_DESKTOP_VERSION: ${{ steps.desktop_version.outputs.prefixed }}
+          ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY: ${{ env.ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Building Linux release bundles (deb, rpm, and AppImage)."
+          pnpm exec tauri build --bundles deb,rpm,appimage
+
+      - name: Verify Linux AppImage updater artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage_dir="src-tauri/target/release/bundle/appimage"
+          shopt -s nullglob
+          appimages=("${appimage_dir}"/*.AppImage)
+          if [ "${#appimages[@]}" -ne 1 ]; then
+            echo "Expected exactly one AppImage in ${appimage_dir}, found ${#appimages[@]}." >&2
+            ls -la "${appimage_dir}" || true
+            exit 1
+          fi
+          updater_signature="${appimages[0]}.sig"
+          if [ ! -s "${updater_signature}" ]; then
+            echo "Expected a non-empty AppImage updater signature: ${updater_signature}" >&2
+            ls -la "${appimage_dir}" || true
+            exit 1
+          fi
+          echo "Verified ${appimages[0]} and ${updater_signature}"
+
+      - name: Smoke test backend startup (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/backend-smoke-test.mjs --label "linux-${{ matrix.arch }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: astrbot-desktop-tauri-${{ needs.resolve_build_context.outputs.astrbot_version }}-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig
+
+  build-macos:
+    needs:
+      - resolve_build_context
+      - sync_repo_version
+    if: ${{ always() && needs.resolve_build_context.outputs.should_build == 'true' && (needs.sync_repo_version.result == 'success' || needs.sync_repo_version.result == 'skipped') }}
+    name: macos-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - arch: arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup desktop build environment
+        uses: ./.github/actions/setup-desktop-build
+
+      - name: Resolve desktop version env
+        id: desktop_version
+        shell: bash
+        run: bash scripts/ci/resolve-desktop-version.sh "${{ needs.resolve_build_context.outputs.astrbot_version }}" "${GITHUB_OUTPUT}"
+
+      - name: Sync and verify desktop version for this build
+        uses: ./.github/actions/sync-desktop-version
+        with:
+          astrbot_version: ${{ steps.desktop_version.outputs.normalized }}
+
+      - name: Import Apple Developer Certificate
+        id: import_apple_certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE is not configured; skipping certificate import."
+            printf 'signing_identity=\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          signing_identities=()
+          while IFS= read -r identity; do
+            signing_identities+=("$identity")
+          done < <(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" || true)
+          if [ "${#signing_identities[@]}" -eq 0 ]; then
+            echo "::error::No Developer ID Application identity found in the imported keychain." >&2
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+            exit 1
+          fi
+          if [ "${#signing_identities[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Developer ID Application identity, found ${#signing_identities[@]}." >&2
+            printf '%s\n' "${signing_identities[@]}" >&2
+            exit 1
+          fi
+          CERT_ID=$(printf '%s\n' "${signing_identities[0]}" | awk -F'"' '{print $2}')
+          if [ -z "$CERT_ID" ]; then
+            echo "::error::Failed to parse the imported Developer ID Application identity." >&2
+            exit 1
+          fi
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$CERT_ID" >> "$GITHUB_ENV"
+          printf 'signing_identity=%s\n' "$CERT_ID" >> "$GITHUB_OUTPUT"
+          echo "Imported signing identity: $CERT_ID"
+
+      - name: Prepare desktop resources (macOS)
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ needs.resolve_build_context.outputs.source_git_url }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_DESKTOP_VERSION: ${{ steps.desktop_version.outputs.prefixed }}
+          ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY: ${{ env.ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run prepare:resources
+          if [ ! -d "resources/backend" ]; then
+            echo "::error::resources/backend not found after prepare:resources." >&2
+            exit 1
+          fi
+
+      - name: Pre-sign backend resources (macOS)
+        if: ${{ steps.import_apple_certificate.outputs.signing_identity != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Pre-signing Mach-O binaries in resources/backend..."
+          bash scripts/ci/codesign-macos-nested.sh "resources/backend" "src-tauri/entitlements.plist"
+
+      - name: Resolve macOS app bundle name
+        id: resolve_macos_app_bundle
+        env:
+          ASTRBOT_MACOS_APP_BUNDLE_NAME: ${{ vars.ASTRBOT_MACOS_APP_BUNDLE_NAME || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo "python3 is required to resolve macOS app bundle name." >&2
+            exit 1
+          fi
+          python3 --version
+          python3 scripts/ci/resolve-macos-app-name.py \
+            --config src-tauri/tauri.conf.json \
+            --override-name "${ASTRBOT_MACOS_APP_BUNDLE_NAME}" \
+            --override-source "env:ASTRBOT_MACOS_APP_BUNDLE_NAME" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Build desktop app bundle (macOS)
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ needs.resolve_build_context.outputs.source_git_url }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_DESKTOP_VERSION: ${{ steps.desktop_version.outputs.prefixed }}
+          ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY: ${{ env.ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ASTRBOT_DESKTOP_CRYPTOGRAPHY_FALLBACK_VERSIONS: ${{ vars.ASTRBOT_DESKTOP_CRYPTOGRAPHY_FALLBACK_VERSIONS || '' }}
+          ASTRBOT_MACOS_BUILD_MAX_ATTEMPTS: ${{ vars.ASTRBOT_MACOS_BUILD_MAX_ATTEMPTS || '3' }}
+          ASTRBOT_MACOS_BUILD_RETRY_SLEEP_SECONDS: ${{ vars.ASTRBOT_MACOS_BUILD_RETRY_SLEEP_SECONDS || '8' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts_default=3
+          max_attempts_upper_bound=6
+          retry_sleep_seconds_default=8
+
+          max_attempts="${ASTRBOT_MACOS_BUILD_MAX_ATTEMPTS}"
+          retry_sleep_seconds="${ASTRBOT_MACOS_BUILD_RETRY_SLEEP_SECONDS}"
+          # Resources are already prepared and, when available, pre-signed in earlier steps.
+          tauri_config_override='{"build":{"beforeBuildCommand":""}}'
+          # Retry known transient cargo/crates network failures.
+          # Spurious retry hints emitted by cargo.
+          transient_retry_spurious='spurious network error|network failure seems to have happened'
+          # HTTP-layer transient fetch failures (rate limits and 5xx responses).
+          transient_retry_http='failed to download from|failed to get successful HTTP response|received HTTP code (429|5[0-9][0-9])'
+          # Transport-layer transient failures.
+          transient_retry_transport='Operation timed out|Connection reset by peer|Connection refused|Temporary failure in name resolution'
+          retry_pattern="${transient_retry_spurious}|${transient_retry_http}|${transient_retry_transport}"
+
+          case "${max_attempts}" in
+            ''|*[!0-9]*|0) max_attempts="${max_attempts_default}" ;;
+          esac
+          if [ "${max_attempts}" -gt "${max_attempts_upper_bound}" ]; then
+            echo "::warning::ASTRBOT_MACOS_BUILD_MAX_ATTEMPTS=${max_attempts} exceeds upper bound ${max_attempts_upper_bound}; clamping."
+            max_attempts="${max_attempts_upper_bound}"
+          fi
+
+          case "${retry_sleep_seconds}" in
+            ''|*[!0-9]*|0) retry_sleep_seconds="${retry_sleep_seconds_default}" ;;
+          esac
+          echo "macOS build retry config: max_attempts=${max_attempts}, retry_sleep_seconds=${retry_sleep_seconds}, max_attempts_upper_bound=${max_attempts_upper_bound}"
+
+          for attempt in $(seq 1 "${max_attempts}"); do
+            build_log="$(mktemp -t tauri-macos-build.XXXXXX.log)"
+            if pnpm exec tauri build --verbose --target ${{ matrix.target }} --bundles app --config "${tauri_config_override}" 2>&1 | tee "${build_log}"; then
+              rm -f "${build_log}" || true
+              break
+            fi
+
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "macOS build failed after ${max_attempts} attempts." >&2
+              rm -f "${build_log}" || true
+              exit 1
+            fi
+
+            if ! grep -Eiq "${retry_pattern}" "${build_log}"; then
+              echo "macOS build failed with non-transient error on attempt ${attempt}/${max_attempts}; skip retries." >&2
+              rm -f "${build_log}" || true
+              exit 1
+            fi
+
+            rm -f "${build_log}" || true
+            echo "macOS build hit transient failure on attempt ${attempt}/${max_attempts}; retrying in ${retry_sleep_seconds}s..."
+            sleep "${retry_sleep_seconds}"
+          done
+
+      - name: Smoke test backend startup (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/backend-smoke-test.mjs --label "macos-${{ matrix.arch }}"
+
+      - name: Collect macOS release artifacts
+        env:
+          ASTRBOT_VERSION: ${{ needs.resolve_build_context.outputs.astrbot_version }}
+          RESOLVED_APP_BUNDLE_NAME: ${{ steps.resolve_macos_app_bundle.outputs.app_bundle_name }}
+          RESOLVED_APP_BUNDLE_NAME_SOURCE: ${{ steps.resolve_macos_app_bundle.outputs.app_bundle_name_source }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_root="src-tauri/target/${{ matrix.target }}/release/bundle"
+          bundle_dir="${bundle_root}/macos"
+          release_dir="${bundle_root}/release-artifacts"
+          app_bundle_name="${RESOLVED_APP_BUNDLE_NAME}"
+          app_bundle_name_source="${RESOLVED_APP_BUNDLE_NAME_SOURCE}"
+          if [ -z "${app_bundle_name}" ]; then
+            echo "Resolved app bundle name is empty (source=${app_bundle_name_source})." >&2
+            exit 1
+          fi
+          # Tauri currently emits macOS updater archives under bundle/macos and this step stages
+          # renamed copies under bundle/release-artifacts. Fail loudly if that layout changes.
+          if [ ! -d "${bundle_root}" ]; then
+            echo "Expected Tauri bundle root not found: ${bundle_root}" >&2
+            ls -la "src-tauri/target/${{ matrix.target }}/release" || true
+            exit 1
+          fi
+          if [ ! -d "${bundle_dir}" ]; then
+            echo "Expected Tauri macOS bundle directory not found: ${bundle_dir}" >&2
+            ls -la "${bundle_root}" || true
+            exit 1
+          fi
+          mkdir -p "${release_dir}"
+
+          expected_updater_archive="${bundle_dir}/${app_bundle_name}.app.tar.gz"
+          if [ -f "${expected_updater_archive}" ]; then
+            updater_archive="${expected_updater_archive}"
+          else
+            shopt -s nullglob
+            updater_archives=("${bundle_dir}/${app_bundle_name}"*.app.tar.gz)
+            if [ "${#updater_archives[@]}" -ne 1 ]; then
+              echo "Expected a macOS updater archive matching ${app_bundle_name}*.app.tar.gz in ${bundle_dir}, found ${#updater_archives[@]}." >&2
+              ls -la "${bundle_dir}" || true
+              exit 1
+            fi
+            updater_archive="${updater_archives[0]}"
+          fi
+          updater_signature="${updater_archive}.sig"
+          if [ ! -f "${updater_signature}" ]; then
+            echo "Expected macOS updater signature not found: ${updater_signature}" >&2
+            ls -la "${bundle_dir}" || true
+            exit 1
+          fi
+
+          release_base="AstrBot_${ASTRBOT_VERSION}_macos_${{ matrix.arch }}.app.tar.gz"
+          cp "${updater_archive}" "${release_dir}/${release_base}"
+          cp "${updater_signature}" "${release_dir}/${release_base}.sig"
+          echo "Collected ${release_dir}/${release_base}"
+
+          app_bundle="${bundle_dir}/${app_bundle_name}.app"
+          if [ ! -d "${app_bundle}" ]; then
+            echo "Expected signed macOS app bundle not found: ${app_bundle}" >&2
+            ls -la "${bundle_dir}" || true
+            exit 1
+          fi
+
+          # create-dmg mounts and mutates a writable image, which is prone to
+          # DiskArbitration detach timeouts on hosted Intel runners. Building
+          # directly from a prepared source folder produces the same drag-to-
+          # Applications layout without an explicit attach/detach cycle.
+          dmg_staging_dir="$(mktemp -d "${RUNNER_TEMP}/astrbot-dmg-${{ matrix.arch }}.XXXXXX")"
+          ditto "${app_bundle}" "${dmg_staging_dir}/${app_bundle_name}.app"
+          ln -s /Applications "${dmg_staging_dir}/Applications"
+          dmg_release_name="AstrBot_${ASTRBOT_VERSION}_macos_${{ matrix.arch }}.dmg"
+          dmg_release_path="${release_dir}/${dmg_release_name}"
+          hdiutil create \
+            -volname "${app_bundle_name}" \
+            -srcfolder "${dmg_staging_dir}" \
+            -ov \
+            -format UDZO \
+            "${dmg_release_path}"
+          hdiutil verify "${dmg_release_path}"
+          echo "Collected ${release_dir}/${dmg_release_name}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: astrbot-desktop-tauri-${{ needs.resolve_build_context.outputs.astrbot_version }}-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/release-artifacts/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/release-artifacts/*.app.tar.gz.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/release-artifacts/*.dmg
+
+  build-windows:
+    needs:
+      - resolve_build_context
+      - sync_repo_version
+    if: ${{ always() && needs.resolve_build_context.outputs.should_build == 'true' && (needs.sync_repo_version.result == 'success' || needs.sync_repo_version.result == 'skipped') }}
+    name: windows-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      ASTRBOT_WINDOWS_BUNDLES: nsis
+      WINDOWS_RELEASE_ASSET_GLOBS: |
+        src-tauri/target/release/bundle/nsis/*.exe
+        src-tauri/target/release/bundle/nsis/*portable*.zip
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup desktop build environment
+        uses: ./.github/actions/setup-desktop-build
+
+      - name: Resolve desktop version env
+        id: desktop_version
+        shell: bash
+        run: bash scripts/ci/resolve-desktop-version.sh "${{ needs.resolve_build_context.outputs.astrbot_version }}" "${GITHUB_OUTPUT}"
+
+      - name: Sync and verify desktop version for this build
+        uses: ./.github/actions/sync-desktop-version
+        with:
+          astrbot_version: ${{ steps.desktop_version.outputs.normalized }}
+
+      - name: Build desktop installers (Windows)
+        env:
+          ASTRBOT_SOURCE_GIT_URL: ${{ needs.resolve_build_context.outputs.source_git_url }}
+          ASTRBOT_SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_DESKTOP_VERSION: ${{ steps.desktop_version.outputs.prefixed }}
+          ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY: ${{ env.ASTRBOT_DESKTOP_UPDATER_PUBLIC_KEY }}
+          ASTRBOT_DESKTOP_TARGET_ARCH: ${{ matrix.arch }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ASTRBOT_DESKTOP_CRYPTOGRAPHY_FALLBACK_VERSIONS: ${{ vars.ASTRBOT_DESKTOP_CRYPTOGRAPHY_FALLBACK_VERSIONS || '' }}
+          ASTRBOT_DESKTOP_WINDOWS_ARM_BACKEND_ARCH: ${{ vars.ASTRBOT_DESKTOP_WINDOWS_ARM_BACKEND_ARCH || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash scripts/ci/build-windows-installers.sh
+
+      - name: Smoke test backend startup (Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/backend-smoke-test.mjs --label "windows-${{ matrix.arch }}"
+
+      - name: Package portable zip artifact (Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ci.package_windows_portable \
+            --bundle-dir src-tauri/target/release/bundle/nsis \
+            --output-dir src-tauri/target/release/bundle/nsis
+
+      - name: Verify Windows installer outputs
+        shell: bash
+        run: bash scripts/ci/verify-windows-installer-outputs.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: astrbot-desktop-tauri-${{ needs.resolve_build_context.outputs.astrbot_version }}-windows-${{ matrix.arch }}
+          if-no-files-found: error
+          # Only upload Windows installer executables.
+          # Keep explicit globs here so we only publish the installer plus the
+          # portable zip, not bundled helper executables from the embedded runtime.
+          path: |
+            ${{ env.WINDOWS_RELEASE_ASSET_GLOBS }}
+            src-tauri/target/release/bundle/nsis/*.exe.sig
+
+  release:
+    name: Publish GitHub Release
+    # Use always() here to avoid skipped upstream guard jobs (for example
+    # sync_repo_version on workflow_dispatch) from implicitly short-circuiting
+    # manual nightly release publishing.
+    if: ${{ always() && needs.resolve_build_context.outputs.should_build == 'true' && needs.resolve_build_context.outputs.release_tag != '' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' }}
+    needs:
+      - resolve_build_context
+      - build-linux
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: astrbot-desktop-tauri-${{ needs.resolve_build_context.outputs.astrbot_version }}-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Show artifacts
+        run: find release-artifacts -type f | sort
+
+      - name: Normalize release artifact filenames
+        env:
+          BUILD_MODE: ${{ needs.resolve_build_context.outputs.build_mode }}
+          SOURCE_GIT_REF: ${{ needs.resolve_build_context.outputs.source_git_ref }}
+          ASTRBOT_STRICT_ARTIFACT_FILENAME_NORMALIZATION: ${{ vars.ASTRBOT_STRICT_ARTIFACT_FILENAME_NORMALIZATION || '0' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          normalize_args=(
+            --root release-artifacts
+            --build-mode "${BUILD_MODE}"
+            --source-git-ref "${SOURCE_GIT_REF}"
+          )
+          strict_flag="$(printf '%s' "${ASTRBOT_STRICT_ARTIFACT_FILENAME_NORMALIZATION}" | tr '[:upper:]' '[:lower:]')"
+          case "${strict_flag}" in
+            1|true|yes|on)
+              normalize_args+=(--strict-unmatched)
+              ;;
+          esac
+          python3 -m scripts.ci.normalize_release_artifact_filenames "${normalize_args[@]}"
+
+      - name: Validate artifact filename uniqueness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/validate-release-artifacts.py release-artifacts
+
+      - name: Generate Tauri updater manifest
+        id: updater_manifest
+        if: ${{ needs.resolve_build_context.outputs.build_mode != 'custom' }}
+        env:
+          RELEASE_TAG: ${{ needs.resolve_build_context.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve_build_context.outputs.astrbot_version }}
+          BUILD_MODE: ${{ needs.resolve_build_context.outputs.build_mode }}
+          R2_PUBLIC_BASE_URL: ${{ env.R2_PUBLIC_BASE_URL }}
+          R2_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          manifest_args=(--artifacts-root release-artifacts)
+          manifest_channel="stable"
+          manifest_output="release-artifacts/latest-stable.json"
+          if [ "${BUILD_MODE}" = "nightly" ]; then
+            manifest_channel="nightly"
+            manifest_output="release-artifacts/latest-nightly.json"
+          else
+            manifest_args+=(--asset-base-url "${R2_PUBLIC_BASE_URL%/}/desktop/releases/${RELEASE_VERSION}/${R2_RELEASE_ID}")
+          fi
+
+          python3 -m scripts.ci.generate_tauri_latest_json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${RELEASE_TAG}" \
+            --version "${RELEASE_VERSION}" \
+            --channel "${manifest_channel}" \
+            "${manifest_args[@]}" \
+            --output "${manifest_output}"
+
+          printf 'channel=%s\n' "${manifest_channel}" >> "${GITHUB_OUTPUT}"
+          printf 'path=%s\n' "${manifest_output}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload immutable release objects to Cloudflare R2
+        if: ${{ needs.resolve_build_context.outputs.build_mode == 'tag-poll' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          RELEASE_VERSION: ${{ needs.resolve_build_context.outputs.astrbot_version }}
+          R2_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          R2_ACCOUNT_ID: ${{ env.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ env.R2_BUCKET }}
+          UPDATER_CHANNEL: ${{ steps.updater_manifest.outputs.channel }}
+          UPDATER_MANIFEST: ${{ steps.updater_manifest.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ]; then
+            echo "::error::R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY repository secrets are required."
+            exit 1
+          fi
+          if [ -z "${R2_ACCOUNT_ID}" ]; then
+            echo "::error::R2_ACCOUNT_ID repository variable is required."
+            exit 1
+          fi
+
+          aws --version
+          python3 -m scripts.ci.publish_r2_release \
+            --artifacts-root release-artifacts \
+            --manifest "${UPDATER_MANIFEST}" \
+            --version "${RELEASE_VERSION}" \
+            --release-id "${R2_RELEASE_ID}" \
+            --channel "${UPDATER_CHANNEL}" \
+            --phase artifacts \
+            --bucket "${R2_BUCKET}" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+      - name: Verify immutable R2 updater objects on public origin
+        if: ${{ needs.resolve_build_context.outputs.build_mode == 'tag-poll' }}
+        env:
+          R2_PUBLIC_BASE_URL: ${{ env.R2_PUBLIC_BASE_URL }}
+          UPDATER_MANIFEST: ${{ steps.updater_manifest.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          updater_urls_file="${RUNNER_TEMP}/r2-updater-urls.txt"
+          python3 - "${UPDATER_MANIFEST}" "${R2_PUBLIC_BASE_URL%/}" > "${updater_urls_file}" <<'PY'
+          import json
+          import sys
+          from urllib.parse import urlsplit
+
+          manifest_path, expected_origin = sys.argv[1:]
+          with open(manifest_path, encoding="utf-8") as file:
+              manifest = json.load(file)
+
+          expected = urlsplit(expected_origin)
+          if expected.scheme != "https" or not expected.netloc:
+              raise SystemExit(f"Invalid R2 public origin: {expected_origin!r}")
+
+          urls = sorted(
+              platform.get("url", "")
+              for platform in manifest.get("platforms", {}).values()
+          )
+          if not urls or any(not url for url in urls):
+              raise SystemExit("Updater manifest has no complete platform URLs")
+
+          for url in urls:
+              parsed = urlsplit(url)
+              if (parsed.scheme, parsed.netloc) != (expected.scheme, expected.netloc):
+                  raise SystemExit(
+                      f"Updater artifact URL is outside the configured R2 origin: {url!r}"
+                  )
+              print(url)
+          PY
+
+          while IFS= read -r updater_url; do
+            echo "Waiting for public R2 object: ${updater_url}"
+            curl --fail --silent --show-error --location --head \
+              --retry 20 --retry-delay 10 --retry-max-time 300 --retry-all-errors \
+              "${updater_url}" >/dev/null
+          done < "${updater_urls_file}"
+
+      - name: Remove existing assets from target release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve_build_context.outputs.release_tag }}
+        shell: bash
+        run: bash scripts/ci/cleanup-release-assets.sh
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: ${{ needs.resolve_build_context.outputs.release_tag }}
+          name: ${{ needs.resolve_build_context.outputs.release_name }}
+          body: |
+            Automated desktop package release.
+            - Source: `${{ needs.resolve_build_context.outputs.source_git_url }}`
+            - Ref: `${{ needs.resolve_build_context.outputs.source_git_ref }}`
+            - Mode: `${{ needs.resolve_build_context.outputs.build_mode }}`
+            - Windows package formats: `nsis installer` and `portable zip`.
+            - Windows portable zip uses manual replacement updates and requires WebView2 to already exist on the host.
+          generate_release_notes: ${{ needs.resolve_build_context.outputs.build_mode != 'nightly' }}
+          prerelease: ${{ needs.resolve_build_context.outputs.release_prerelease == 'true' }}
+          make_latest: ${{ needs.resolve_build_context.outputs.release_make_latest == 'true' }}
+          overwrite_files: true
+          files: release-artifacts/**/*
+          fail_on_unmatched_files: true
+
+      - name: Promote Cloudflare R2 updater channel
+        if: ${{ needs.resolve_build_context.outputs.build_mode == 'tag-poll' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          RELEASE_VERSION: ${{ needs.resolve_build_context.outputs.astrbot_version }}
+          R2_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          R2_ACCOUNT_ID: ${{ env.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ env.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ env.R2_PUBLIC_BASE_URL }}
+          UPDATER_CHANNEL: ${{ steps.updater_manifest.outputs.channel }}
+          UPDATER_MANIFEST: ${{ steps.updater_manifest.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 -m scripts.ci.publish_r2_release \
+            --artifacts-root release-artifacts \
+            --manifest "${UPDATER_MANIFEST}" \
+            --version "${RELEASE_VERSION}" \
+            --release-id "${R2_RELEASE_ID}" \
+            --channel "${UPDATER_CHANNEL}" \
+            --phase channel \
+            --bucket "${R2_BUCKET}" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          public_manifest_url="${R2_PUBLIC_BASE_URL%/}/desktop/channels/${UPDATER_CHANNEL}/latest.json"
+          curl --fail --silent --show-error \
+            --retry 20 --retry-delay 10 --retry-max-time 300 --retry-all-errors \
+            "${public_manifest_url}?version=${RELEASE_VERSION}" \
+            --output published-latest.json
+          python3 - "${RELEASE_VERSION}" <<'PY'
+          import json
+          import sys
+
+          with open("published-latest.json", encoding="utf-8") as file:
+              published = json.load(file)
+          if published.get("version") != sys.argv[1]:
+              raise SystemExit(
+                  f"Published updater version mismatch: {published.get('version')!r}"
+              )
+          PY
+
+      - name: Demote previous prerelease marker
+        if: ${{ needs.resolve_build_context.outputs.release_prerelease == 'true' && needs.resolve_build_context.outputs.build_mode == 'nightly' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RELEASE_TAG: ${{ needs.resolve_build_context.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          previous_prerelease_id="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              | jq -s -r --arg current_tag "${CURRENT_RELEASE_TAG}" '
+                  # gh --paginate emits one JSON value per page; keep array pages and flatten.
+                  map(select(type == "array"))
+                  | flatten
+                  | map(
+                      (.tag_name // "") as $tag
+                      | select(
+                          .prerelease == true
+                          and .draft == false
+                          and .tag_name != $current_tag
+                          # Match nightly-like tags in a case-insensitive way:
+                          # nightly, *-nightly*, *.nightly*, etc.
+                          and ($tag | test("(^|[-.])nightly([-.]|$)"; "i"))
+                        )
+                    )
+                  | sort_by(.published_at // .created_at)
+                  | reverse
+                  | .[0].id // empty
+                '
+          )"
+
+          if [ -z "${previous_prerelease_id}" ]; then
+            echo "No previous prerelease found to demote."
+            exit 0
+          fi
+
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${previous_prerelease_id}" \
+            -f prerelease=false \
+            -f make_latest=false >/dev/null
+          echo "Demoted previous prerelease release_id=${previous_prerelease_id}"
