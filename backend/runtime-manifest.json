@@ -9,11 +9,11 @@
   "sourceCommit": null,
   "webui": {
     "version": "4.28.0",
-    "indexSha256": "0640b6ec1049611597772bfd2e0533fa224b066876d0e2862be060b545f2b3e8",
+    "indexSha256": "c6462735a693c0c56b3ac90bdb26c76d61cdd62442ab9e3103ab4a998a2120a5",
     "entryAssets": [
       {
-        "path": "assets/index-CuxSTlQ5.js",
-        "sha256": "b04ac54062496b54a1eb1424432882798a304906839339f009804f17a593f878"
+        "path": "assets/index-CjbMhvtM.js",
+        "sha256": "08ad203821ea6b23ba41cf199ac5bfd6a84e31eaf8eaba25c1fb0e5c125c90d7"
       },
       {
         "path": "assets/index-DhrK-iEp.css",

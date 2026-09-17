@@ -16,9 +16,31 @@ const countLabels: Record<string, string> = {
   qq_binary_assets: '媒体资源',
   qq_relationships: '人物关系',
   ecobot_affinity_profiles: '好感档案',
+  ecobot_style_profiles: '语气档案',
   ecobot_memories: '长期记忆',
   ecobot_behavior_batches: '行为批次',
 };
+
+const knownValues: Record<string, string> = {
+  idle: '待机',
+  calm: '平静',
+  online: '在线',
+  'quietly observing the current scene': '安静地观察当前场景',
+};
+
+const triggerNames: Record<string, string> = {
+  initialize: '初始化',
+  message: '收到消息',
+  idle: '空闲驱动',
+  time_due: '定时结束',
+  plan: '行为规划',
+};
+
+function formatStateValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (Array.isArray(value)) return value.length ? value.map(String).join('、') : '-';
+  return knownValues[String(value)] || String(value);
+}
 
 const metrics = computed(() =>
   Object.entries(status.value?.counts || {}).map(([key, value]) => ({
@@ -61,12 +83,12 @@ onMounted(load);
     <section class="detail-section">
       <h2>当前人物状态</h2>
       <div v-if="state" class="state-grid">
-        <div><span>活动</span><strong>{{ state.activity || '-' }}</strong></div>
-        <div><span>行为</span><strong>{{ state.behavior || '-' }}</strong></div>
-        <div><span>场景</span><strong>{{ state.scene || '-' }}</strong></div>
-        <div><span>地点</span><strong>{{ state.location || '-' }}</strong></div>
-        <div><span>情绪</span><strong>{{ state.mood || '-' }}</strong></div>
-        <div><span>目标</span><strong>{{ state.goal || '-' }}</strong></div>
+        <div><span>活动</span><strong>{{ formatStateValue(state.activity) }}</strong></div>
+        <div><span>行为</span><strong>{{ formatStateValue(state.behavior) }}</strong></div>
+        <div><span>场景</span><strong>{{ formatStateValue(state.scene) }}</strong></div>
+        <div><span>地点</span><strong>{{ formatStateValue(state.location) }}</strong></div>
+        <div><span>情绪</span><strong>{{ formatStateValue(state.mood) }}</strong></div>
+        <div><span>目标</span><strong>{{ formatStateValue(state.goal) }}</strong></div>
       </div>
       <p v-else class="empty-text">尚未形成状态记录</p>
     </section>
@@ -74,7 +96,7 @@ onMounted(load);
     <section class="detail-section">
       <h2>最近行为批次</h2>
       <div v-if="status?.latest_batch" class="batch-line">
-        <strong>{{ status.latest_batch.trigger || '-' }}</strong>
+        <strong>{{ triggerNames[String(status.latest_batch.trigger)] || status.latest_batch.trigger || '-' }}</strong>
         <span>{{ status.latest_batch.channel_id || '-' }}</span>
         <span>{{ status.latest_batch.status || '-' }}</span>
         <span>{{ status.latest_batch.stop_reason || '-' }}</span>
