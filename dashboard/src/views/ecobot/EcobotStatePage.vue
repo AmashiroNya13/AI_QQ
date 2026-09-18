@@ -16,20 +16,23 @@ const stateFields = [
   { key: 'focus', label: '关注对象' },
   { key: 'companions', label: '同行者' },
   { key: 'mood', label: '情绪' },
+  { key: 'drives', label: '内在驱动力' },
   { key: 'energy', label: '精力' },
+  { key: 'attention_load', label: '注意力负荷' },
   { key: 'hunger', label: '饥饿度' },
   { key: 'fatigue', label: '疲劳度' },
   { key: 'social_drive', label: '社交意愿' },
   { key: 'goal', label: '当前目标' },
   { key: 'activity_started_at', label: '活动开始时间' },
   { key: 'expected_end_at', label: '预计结束时间' },
+  { key: 'version', label: '状态版本' },
   { key: 'updated_at', label: '更新时间' },
 ];
 const columns = [
   { key: 'version', title: '版本' },
   { key: 'trigger', title: '触发方式' },
   { key: 'reason', title: '变化原因' },
-  { key: 'batch_id', title: '批次' },
+  { key: 'batch_id', title: '来源事件' },
   { key: 'changed_at', title: '变化时间' },
   { key: 'next_state_json', title: '状态快照' },
 ];
@@ -59,6 +62,12 @@ function formatStateValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return '-';
   if (['updated_at', 'activity_started_at', 'expected_end_at'].includes(key)) return formatDate(value);
   if (Array.isArray(value)) return value.length ? value.map(String).join('、') : '-';
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([name, item]) => `${name}：${typeof item === 'number' ? `${Math.round(item * 100)}%` : String(item)}`)
+      .join('；') || '-';
+  }
+  if (typeof value === 'number' && ['energy', 'attention_load', 'hunger', 'fatigue', 'social_drive'].includes(key)) return `${value.toFixed(1)} / 100`;
   return knownValues[String(value)] || String(value);
 }
 

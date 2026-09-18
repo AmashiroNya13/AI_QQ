@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,6 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.dashboard.responses import ApiError, ok
 from ecobot.admin_store import EcobotAdminStore
 from ecobot.qq_archive import QQArchive
-from ecobot.style_memory import StyleMemoryStore
 from ecobot2.store import AutonomousStore
 
 from .auth import AuthContext, ScopeDependency
@@ -269,9 +270,21 @@ async def state(
     agent_id: str = "ecobot",
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.state(agent_id))
+        value = store.subjective_state(agent_id)
+        if value is None:
+            return ok(None)
+        data = asdict(value)
+        scene = store.scene("main")
+        data.update({
+            "behavior": data["activity"],
+            "scene": scene.scene_id if scene else "main",
+            "location": data["location_id"],
+            "mood": data["mood"],
+            "scene_state": asdict(scene) if scene else None,
+        })
+        return ok(data)
     finally:
         store.close()
 
@@ -282,9 +295,24 @@ async def state_history(
     limit: int = Query(50, ge=1, le=500),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.state_history(agent_id, limit))
+        rows = []
+        for event in store.events(max(50, limit * 3)):
+            if event.get("kind") not in {"scene_changed", "time_tick"}:
+                continue
+            payload = event.get("payload") or {}
+            rows.append({
+                "version": payload.get("version"),
+                "trigger": event.get("kind"),
+                "reason": payload.get("source") or "主体世界推进",
+                "batch_id": event.get("event_id"),
+                "changed_at": event.get("occurred_at"),
+                "next_state_json": json.dumps(payload, ensure_ascii=False, default=str),
+            })
+            if len(rows) >= limit:
+                break
+        return ok(rows)
     finally:
         store.close()
 
@@ -306,9 +334,9 @@ async def affinities(
     limit: int = Query(100, ge=1, le=1000),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.affinities(limit))
+        return ok(store.relationship_profiles(limit))
     finally:
         store.close()
 
@@ -319,51 +347,11 @@ async def affinity_events(
     limit: int = Query(100, ge=1, le=1000),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.affinity_events(user_id, limit))
+        return ok(store.relationship_events(user_id, limit))
     finally:
         store.close()
-
-
-@router.get("/ecobot/styles")
-async def style_profiles(
-    limit: int = Query(100, ge=1, le=1000),
-    _auth: AuthContext = Depends(require_data_scope),
-):
-    store = _admin()
-    try:
-        return ok(store.style_profiles(limit))
-    finally:
-        store.close()
-
-
-@router.get("/ecobot/styles/{user_id}/examples")
-async def style_examples(
-    user_id: str,
-    limit: int = Query(100, ge=1, le=1000),
-    _auth: AuthContext = Depends(require_data_scope),
-):
-    store = _admin()
-    try:
-        return ok(store.style_examples(user_id, limit))
-    finally:
-        store.close()
-
-
-@router.post("/ecobot/styles/{user_id}/backfill")
-async def backfill_style(
-    user_id: str,
-    limit: int = Query(5000, ge=1, le=50000),
-    _auth: AuthContext = Depends(require_config_scope),
-):
-    style_store = StyleMemoryStore(_database_path())
-    try:
-        return ok({"inserted": style_store.backfill_from_archive(user_id, limit)})
-    except ValueError as exc:
-        raise ApiError(str(exc)) from exc
-    finally:
-        style_store.close()
 
 
 @router.patch("/ecobot/affinities/{user_id}")
@@ -372,47 +360,86 @@ async def update_affinity(
     changes: dict[str, Any],
     _auth: AuthContext = Depends(require_config_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.update_affinity(user_id, changes))
+        return ok(store.manual_update_relationship(user_id, changes))
     except ValueError as exc:
         raise ApiError(str(exc)) from exc
     finally:
         store.close()
 
 
-@router.get("/ecobot/memories")
-async def memories(
+@router.get("/ecobot/memory/episodes")
+async def memory_episodes(
     limit: int = Query(100, ge=1, le=1000),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.memories(limit))
+        return ok(store.memory_episodes(limit))
     finally:
         store.close()
 
 
-@router.get("/ecobot/batches")
-async def batches(
+@router.get("/ecobot/memory/retrievals")
+async def memory_retrievals(
     limit: int = Query(100, ge=1, le=1000),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.batches(limit))
+        return ok(store.memory_retrievals(limit))
     finally:
         store.close()
 
 
-@router.get("/ecobot/actions")
-async def actions(
+@router.get("/ecobot/memory/policies")
+async def memory_policies(
     limit: int = Query(100, ge=1, le=1000),
     _auth: AuthContext = Depends(require_data_scope),
 ):
-    store = _admin()
+    store = _autonomous()
     try:
-        return ok(store.actions(limit))
+        return ok(store.memory_policies(limit))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/persona/increments")
+async def persona_increments(
+    status: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.persona_increments(limit, status))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/temporal-relations")
+async def temporal_relations(
+    subject_id: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.temporal_relations(subject_id, limit))
+    finally:
+        store.close()
+
+
+@router.get("/ecobot/grievances")
+async def grievances(
+    target_id: str | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    _auth: AuthContext = Depends(require_data_scope),
+):
+    store = _autonomous()
+    try:
+        return ok(store.grievances(target_id, limit))
     finally:
         store.close()
 

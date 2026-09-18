@@ -15,10 +15,11 @@ const countLabels: Record<string, string> = {
   qq_outbound_messages: '主动消息',
   qq_binary_assets: '媒体资源',
   qq_relationships: '人物关系',
-  ecobot_affinity_profiles: '好感档案',
-  ecobot_style_profiles: '语气档案',
-  ecobot_memories: '长期记忆',
-  ecobot_behavior_batches: '行为批次',
+  ecobot2_memory_episodes: '情节记忆',
+  ecobot2_memory_retrievals: '主动重建',
+  ecobot2_persona_increments: '人格增量',
+  ecobot2_temporal_relations: '时间关系',
+  ecobot2_grievances: '记仇记录',
 };
 
 const knownValues: Record<string, string> = {

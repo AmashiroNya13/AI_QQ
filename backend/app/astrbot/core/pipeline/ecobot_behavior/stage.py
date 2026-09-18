@@ -22,17 +22,13 @@ from ecobot.astrbot_bridge import (
     is_behavioral_message_event,
     is_enabled,
 )
-from ecobot.agent_state import AgentStateStore
 from ecobot.admin_store import EcobotAdminStore
 from ecobot.anti_repeat import AntiRepeatGuard
-from ecobot.contracts import BehaviorBatchError, Stimulus
-from ecobot.memory import MemoryStore
+from ecobot.contracts import Stimulus
 from ecobot.qq_archive import QQArchive
 from ecobot.refresh_scheduler import RefreshScheduler
-from ecobot.style_memory import StyleMemoryStore
 from ecobot2.runtime import AutonomousRuntime
 from ecobot2.life_loop import AutonomousLifeLoop
-from ecobot.world_model import WorldModel
 
 from ..context import PipelineContext
 from ..stage import Stage, register_stage
@@ -54,14 +50,6 @@ class EcobotBehaviorStage(Stage):
         self.ctx = ctx
         self.settings_store = EcobotAdminStore(database_path)
         settings = self.settings_store.settings()
-        self.world_model = WorldModel(
-            max_events_per_channel=500,
-            database_path=database_path,
-        )
-        self.agent_state_store = AgentStateStore(database_path)
-        self.agent_state_store.get("ecobot")
-        self.memory_store = MemoryStore(database_path)
-        self.style_store = StyleMemoryStore(database_path)
         self.autonomous_runtime = AutonomousRuntime(database_path)
         self.life_loop = AutonomousLifeLoop(self.autonomous_runtime)
         if self.autonomous_runtime.store.subjective_state("ecobot") is None:
@@ -78,25 +66,15 @@ class EcobotBehaviorStage(Stage):
         self._routes: dict[str, AstrMessageEvent] = {}
         self.bridge = AstrBotBehaviorBridge(
             ctx.plugin_manager.context,
-            self.world_model,
             self.qq_archive,
-            self.agent_state_store,
-            self.memory_store,
-            self.style_store,
             self.autonomous_runtime,
             self.anti_repeat,
             self.settings_store,
-            max_action_rounds=settings["max_action_rounds"],
-            max_actions=settings["max_actions"],
-            memory_limit=settings["memory_limit"],
-            recent_message_limit=settings["recent_message_limit"],
-            subjective_mode=True,
         )
         self.bridge.apply_settings(settings)
         if settings["debug_log_enabled"]:
             logger.info(
-                "[Ecobot 调试] 中文调试日志已启用 | 完整输入=%s | 阶段追踪=%s",
-                "显示" if settings["debug_log_include_prompts"] else "隐藏",
+                "[Ecobot 调试] 中文调试日志已启用 | 主体决策追踪=%s",
                 "开启" if settings["trace_enabled"] else "关闭",
             )
         self._idle_task = asyncio.create_task(
@@ -133,13 +111,6 @@ class EcobotBehaviorStage(Stage):
                 lambda batch_id: self.bridge.process(event, batch_id=batch_id),
                 agent_id="ecobot",
             )
-        except BehaviorBatchError as exc:
-            logger.error(
-                "[Ecobot][心跳处理器] 行为批次失败，已回退到 AstrBot：%s",
-                exc,
-                exc_info=True,
-            )
-            return
         except Exception:
             logger.exception(
                 "[Ecobot][心跳处理器] 行为桥接失败，已回退到 AstrBot"
@@ -198,7 +169,6 @@ class EcobotBehaviorStage(Stage):
                 self.refresh_scheduler.idle_interval = timedelta(
                     seconds=settings["idle_interval_seconds"]
                 )
-                self.bridge.max_action_rounds = settings["max_action_rounds"]
                 self.bridge.apply_settings(settings)
                 if not settings["enabled"]:
                     continue
@@ -231,7 +201,7 @@ class EcobotBehaviorStage(Stage):
                             stimulus,
                             event=event,
                             batch_id=batch_id,
-                            allow_actions=False,
+                            allow_actions=True,
                             allow_expression=settings[
                                 "idle_allow_proactive_expression"
                             ],
@@ -289,7 +259,7 @@ class EcobotBehaviorStage(Stage):
                         route_channel,
                         event=self._routes.get(route_channel),
                     )
-                    if route_channel
+                    if route_channel and not self.life_loop.has_active_intent()
                     else None
                 )
                 result = self.life_loop.tick(proposed_intent=proposal)
@@ -314,10 +284,6 @@ class EcobotBehaviorStage(Stage):
             await self._life_task
         self.refresh_scheduler.close()
         self.anti_repeat.close()
-        self.memory_store.close()
-        self.style_store.close()
         self.autonomous_runtime.close()
-        self.agent_state_store.close()
-        self.world_model.close()
         self.qq_archive.close()
         self.settings_store.close()

@@ -9,15 +9,15 @@
   "sourceCommit": null,
   "webui": {
     "version": "4.28.0",
-    "indexSha256": "c6462735a693c0c56b3ac90bdb26c76d61cdd62442ab9e3103ab4a998a2120a5",
+    "indexSha256": "b8747adcacd2ecd0e64980360cd5b55bb28e2e220b98845268ac998a6647133c",
     "entryAssets": [
       {
-        "path": "assets/index-CjbMhvtM.js",
-        "sha256": "08ad203821ea6b23ba41cf199ac5bfd6a84e31eaf8eaba25c1fb0e5c125c90d7"
+        "path": "assets/index-i1xqs1ow.js",
+        "sha256": "016055b5ea0f5f78bc5207208027addf6b94717770cfb5be8062f0ba2cb015f8"
       },
       {
-        "path": "assets/index-DhrK-iEp.css",
-        "sha256": "c54e1d25f921656bf835a38ad7d94eaafbf2431bdbb800d2c514430145b54280"
+        "path": "assets/index-qaIf20K2.css",
+        "sha256": "6dab23f9d0c13fb98b5691e4ede2f91f557072ceccf8fe37b057199e5b8cfca7"
       }
     ]
   }

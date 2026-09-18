@@ -36,10 +36,12 @@ class AutonomousLifeLoop:
         runtime: AutonomousRuntime,
         *,
         minimum_state_interval: timedelta = timedelta(minutes=1),
+        repeat_cooldown: timedelta = timedelta(minutes=10),
         intent_proposer: Callable[[dict[str, Any]], ActionIntent | None] | None = None,
     ) -> None:
         self.runtime = runtime
         self.minimum_state_interval = minimum_state_interval
+        self.repeat_cooldown = repeat_cooldown
         self.intent_proposer = intent_proposer
 
     def tick(
@@ -82,6 +84,7 @@ class AutonomousLifeLoop:
             resolution = self.runtime.resolve_intent(intent)
             resolution_status = resolution.status
             if resolution.status == "succeeded":
+                state_before_action = self.runtime.store.subjective_state(self.runtime.agent_id)
                 attempt = self.runtime.start_action(intent)
                 self.runtime.record_receipt(
                     attempt.attempt_id,
@@ -105,14 +108,28 @@ class AutonomousLifeLoop:
                         payload=dict(reaction),
                     )
                 self._apply_action_state(intent, resolution.next_location_id)
+                state_after_action = self.runtime.store.subjective_state(self.runtime.agent_id)
+                state_changed = self._state_changed(state_before_action, state_after_action)
+                experience_confidence = min(
+                    0.95,
+                    0.24
+                    + float(intent.priority) * 0.24
+                    + (0.24 if state_changed else 0.0)
+                    + min(0.18, len(resolution.reactions) * 0.06)
+                    + (0.08 if resolution.estimated_duration_seconds else 0.0),
+                )
                 self.runtime.review_experience(
-                    category="habit",
+                    category=self._experience_category(intent.action_type),
                     proposal={
                         "action_type": intent.action_type,
+                        "arguments": dict(intent.arguments),
                         "result": "succeeded",
+                        "reason": resolution.reason,
+                        "state_changed": state_changed,
+                        "reactions": list(resolution.reactions),
                     },
                     evidence=[attempt.attempt_id],
-                    confidence=0.45,
+                    confidence=experience_confidence,
                     source_event_id=attempt.attempt_id,
                 )
                 completed_intent_id = intent.intent_id
@@ -120,10 +137,9 @@ class AutonomousLifeLoop:
         created_intent_id: str | None = None
         if active is None:
             if proposed_intent is not None:
-                self.runtime.submit_intent(proposed_intent)
-                created_intent_id = proposed_intent.intent_id
+                created_intent_id = self._submit_if_novel(proposed_intent, current_time)
             else:
-                created_intent_id = self._propose_intent(state)
+                created_intent_id = self._propose_intent(state, current_time)
 
         return LifeTickResult(
             tick_id=tick_id,
@@ -139,6 +155,9 @@ class AutonomousLifeLoop:
             if items:
                 return items[0]
         return None
+
+    def has_active_intent(self) -> bool:
+        return self._active_intent() is not None
 
     def _evolve_state(self, state, current_time: datetime) -> bool:
         try:
@@ -165,7 +184,7 @@ class AutonomousLifeLoop:
         )
         return True
 
-    def _propose_intent(self, state) -> str | None:
+    def _propose_intent(self, state, current_time: datetime) -> str | None:
         if self.intent_proposer is None:
             return None
         proposal = self.intent_proposer(
@@ -178,8 +197,64 @@ class AutonomousLifeLoop:
         )
         if proposal is None:
             return None
-        self.runtime.submit_intent(proposal)
-        return proposal.intent_id
+        return self._submit_if_novel(proposal, current_time)
+
+    def _submit_if_novel(self, intent: ActionIntent, current_time: datetime) -> str | None:
+        if self._was_recently_succeeded(intent, current_time):
+            self.runtime.observe(
+                "intent_suppressed",
+                event_id=f"intent-suppressed:{intent.intent_id}",
+                payload={
+                    "action_type": intent.action_type,
+                    "arguments": dict(intent.arguments),
+                    "reason": "相同意图在冷却时间内已经成功执行",
+                },
+            )
+            return None
+        self.runtime.submit_intent(intent)
+        return intent.intent_id
+
+    def _was_recently_succeeded(self, intent: ActionIntent, current_time: datetime) -> bool:
+        cooldown_seconds = max(0.0, self.repeat_cooldown.total_seconds())
+        if cooldown_seconds <= 0:
+            return False
+        for action in self.runtime.store.actions(40):
+            if action.get("status") != ActionStatus.SUCCEEDED.value:
+                continue
+            if action.get("action_type") != intent.action_type:
+                continue
+            if dict(action.get("arguments") or {}) != dict(intent.arguments):
+                continue
+            try:
+                started_at = _parse_time(str(action.get("started_at")))
+            except (TypeError, ValueError):
+                continue
+            if max(0.0, (current_time - started_at).total_seconds()) < cooldown_seconds:
+                return True
+        return False
+
+    @staticmethod
+    def _experience_category(action_type: str) -> str:
+        return {
+            "go_to": "movement",
+            "start_activity": "activity",
+            "send_expression": "social_expression",
+        }.get(action_type, "world_action")
+
+    @staticmethod
+    def _state_changed(before, after) -> bool:
+        if before is None or after is None:
+            return before != after
+        return any(
+            (
+                before.location_id != after.location_id,
+                before.activity != after.activity,
+                before.focus != after.focus,
+                abs(before.energy - after.energy) >= 1.0,
+                before.mood != after.mood,
+                before.drives != after.drives,
+            )
+        )
 
     def _apply_action_state(self, intent: ActionIntent, next_location_id: str | None) -> None:
         state = self.runtime.store.subjective_state(self.runtime.agent_id)

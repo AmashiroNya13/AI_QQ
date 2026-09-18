@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
 import threading
 from collections.abc import Sequence
@@ -10,7 +11,24 @@ from difflib import SequenceMatcher
 from hashlib import sha256
 from pathlib import Path
 
-from .style_memory import style_signature
+
+def style_signature(text: str) -> str:
+    value = text.strip()
+    leading_match = re.match(r"^\s*(欸|诶|哎|嗯|唔|哼|啊|喂)[，,。…！？!?~～]*", value)
+    trailing_match = re.search(r"([啊呀啦呢吧嘛哦诶欸哼唔嗯]+[！!？?~～…]*)\s*$", value)
+    emoji = bool(re.search(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", value))
+    if value.endswith(("？", "?")):
+        form = "疑问式"
+    elif value.endswith(("！", "!")):
+        form = "感叹式"
+    elif value.endswith(("…", "~", "～")):
+        form = "拖长尾音"
+    elif len(value) <= 12:
+        form = "短回应"
+    else:
+        form = "陈述式"
+    flavor = [leading_match.group(1) if leading_match else "", trailing_match.group(1) if trailing_match else "", "有表情符号" if emoji else ""]
+    return "|".join([*flavor, form]) if any(flavor) else ""
 
 
 def _now() -> datetime:

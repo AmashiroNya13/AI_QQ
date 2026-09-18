@@ -18,48 +18,32 @@ export interface EcobotStatus {
 export interface EcobotSettings {
   enabled: boolean;
   persona_enabled: boolean;
+  persona_base_prompt: string;
+  persona_growth_enabled: boolean;
+  persona_growth_auto_activate: boolean;
+  persona_growth_min_confidence: number;
+  persona_growth_min_evidence: number;
+  persona_growth_limit: number;
   passive_interval_seconds: number;
   idle_interval_seconds: number;
   idle_poll_seconds: number;
   idle_allow_proactive_expression: boolean;
   idle_prompt: string;
-  max_action_rounds: number;
-  max_actions: number;
-  recent_message_limit: number;
-  memory_limit: number;
-  memory_embedding_enabled: boolean;
-  memory_embedding_provider_id: string;
-  memory_semantic_min_similarity: number;
+  memory_reconstruction_enabled: boolean;
+  memory_reconstruction_limit: number;
+  memory_reconstruction_hops: number;
   structured_output_retries: number;
   model_timeout_seconds: number;
   request_max_retries: number;
   generation_temperature: number;
   generation_top_p: number;
   generation_max_tokens: number;
-  desire_threshold: number;
-  desire_time_growth_enabled: boolean;
-  desire_time_growth_per_hour: number;
-  desire_time_growth_max: number;
-  state_update_enabled: boolean;
-  tools_enabled: boolean;
-  tool_allowlist: string[];
-  max_tool_risk: 'low' | 'medium' | 'high';
   anti_repeat_window_minutes: number;
   anti_repeat_fuzzy_threshold: number;
   anti_repeat_semantic_threshold: number;
   reply_style_repeat_enabled: boolean;
   reply_style_window_minutes: number;
   reply_style_repeat_limit: number;
-  style_learning_enabled: boolean;
-  style_reference_enabled: boolean;
-  style_reference_user_ids: string[];
-  style_reference_limit: number;
-  style_reference_min_similarity: number;
-  identity_imitation_enabled: boolean;
-  identity_imitation_user_id: string;
-  high_fidelity_imitation_enabled: boolean;
-  style_rewrite_provider_id: string;
-  style_rewrite_prompt: string;
   relationship_scan_interval_seconds: number;
   relationship_evaluation_interval_hours: number;
   relationship_minimum_new_evidence: number;
@@ -74,22 +58,6 @@ export interface EcobotSettings {
   trace_include_prompts: boolean;
   trace_max_records: number;
   debug_log_enabled: boolean;
-  debug_log_include_prompts: boolean;
-  observe_enabled: boolean;
-  observe_provider_id: string;
-  observe_prompt: string;
-  infer_enabled: boolean;
-  infer_provider_id: string;
-  infer_prompt: string;
-  desire_enabled: boolean;
-  desire_provider_id: string;
-  desire_prompt: string;
-  plan_enabled: boolean;
-  plan_provider_id: string;
-  plan_prompt: string;
-  reflect_enabled: boolean;
-  reflect_provider_id: string;
-  reflect_prompt: string;
   updated_at?: string;
 }
 
@@ -105,7 +73,15 @@ export const ecobotApi = {
     get<EcobotRecord[]>('/ecobot/state/history', { limit }),
   worldEvents: (limit = 100) =>
     get<EcobotRecord[]>('/ecobot/world/events', { limit }),
-  memories: (limit = 100) => get<EcobotRecord[]>('/ecobot/memories', { limit }),
+  memoryEpisodes: (limit = 100) => get<EcobotRecord[]>('/ecobot/memory/episodes', { limit }),
+  memoryRetrievals: (limit = 100) => get<EcobotRecord[]>('/ecobot/memory/retrievals', { limit }),
+  memoryPolicies: (limit = 100) => get<EcobotRecord[]>('/ecobot/memory/policies', { limit }),
+  personaIncrements: (status = '', limit = 100) =>
+    get<EcobotRecord[]>('/ecobot/persona/increments', { status: status || undefined, limit }),
+  temporalRelations: (subjectId = '', limit = 100) =>
+    get<EcobotRecord[]>('/ecobot/temporal-relations', { subject_id: subjectId || undefined, limit }),
+  grievances: (targetId = '', limit = 100) =>
+    get<EcobotRecord[]>('/ecobot/grievances', { target_id: targetId || undefined, limit }),
   relationships: (limit = 100) =>
     get<EcobotRecord[]>('/ecobot/relationships', { limit }),
   affinities: (limit = 100) =>
@@ -115,17 +91,6 @@ export const ecobotApi = {
       user_id: userId || undefined,
       limit,
     }),
-  styleProfiles: (limit = 100) => get<EcobotRecord[]>('/ecobot/styles', { limit }),
-  styleExamples: (userId: string, limit = 100) =>
-    get<EcobotRecord[]>(`/ecobot/styles/${encodeURIComponent(userId)}/examples`, { limit }),
-  backfillStyle: async (userId: string, limit = 5000) => {
-    const response = await apiV1Client.post<EcobotEnvelope<{ inserted: number }>>(
-      `/ecobot/styles/${encodeURIComponent(userId)}/backfill`,
-      undefined,
-      { params: { limit } },
-    );
-    return response.data.data;
-  },
   autonomyEvents: (limit = 100) => get<EcobotRecord[]>('/ecobot/autonomy/events', { limit }),
   autonomyActions: (limit = 100) => get<EcobotRecord[]>('/ecobot/autonomy/actions', { limit }),
   autonomyConsequences: (limit = 100) => get<EcobotRecord[]>('/ecobot/autonomy/consequences', { limit }),
@@ -188,8 +153,6 @@ export const ecobotApi = {
     );
     return response.data.data;
   },
-  batches: (limit = 100) => get<EcobotRecord[]>('/ecobot/batches', { limit }),
-  actions: (limit = 100) => get<EcobotRecord[]>('/ecobot/actions', { limit }),
   traces: (limit = 100) => get<EcobotRecord[]>('/ecobot/traces', { limit }),
   users: (q = '', limit = 100) => get<EcobotRecord[]>('/ecobot/users', { q, limit }),
   groups: (q = '', limit = 100) => get<EcobotRecord[]>('/ecobot/groups', { q, limit }),

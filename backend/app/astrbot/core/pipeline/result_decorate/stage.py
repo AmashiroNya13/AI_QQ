@@ -29,6 +29,17 @@ class ResultDecorateStage(Stage):
         self.reply_with_quote = ctx.astrbot_config["platform_settings"][
             "reply_with_quote"
         ]
+        try:
+            self.reply_quote_min_age_seconds = max(
+                60.0,
+                float(
+                    ctx.astrbot_config["platform_settings"].get(
+                        "reply_quote_min_age_seconds", 600
+                    )
+                ),
+            )
+        except (TypeError, ValueError):
+            self.reply_quote_min_age_seconds = 600.0
         self.t2i_word_threshold = ctx.astrbot_config["t2i_word_threshold"]
         try:
             self.t2i_word_threshold = int(self.t2i_word_threshold)
@@ -100,6 +111,21 @@ class ResultDecorateStage(Stage):
 
         provider_cfg = ctx.astrbot_config.get("provider_settings", {})
         self.show_reasoning = provider_cfg.get("display_reasoning_text", False)
+
+    def _should_add_quote(self, event: AstrMessageEvent) -> bool:
+        if not self.reply_with_quote:
+            return False
+        timestamp = getattr(event, "created_at", None)
+        raw_message = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if isinstance(raw_message, dict) and raw_message.get("time") is not None:
+            timestamp = raw_message.get("time")
+        try:
+            if hasattr(timestamp, "timestamp"):
+                timestamp = timestamp.timestamp()
+            age_seconds = time.time() - float(timestamp)
+        except (TypeError, ValueError, OSError):
+            return False
+        return age_seconds >= self.reply_quote_min_age_seconds
 
     def _split_text_by_words(self, text: str) -> list[str]:
         """使用分段词列表分段文本"""
@@ -449,5 +475,5 @@ class ResultDecorateStage(Stage):
                         result.chain[1].text = "\n" + result.chain[1].text
 
                 # 引用回复
-                if self.reply_with_quote:
+                if self._should_add_quote(event):
                     result.chain.insert(0, Reply(id=event.message_obj.message_id))

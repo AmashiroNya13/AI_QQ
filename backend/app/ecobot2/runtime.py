@@ -28,6 +28,7 @@ from .conversation import (
     infer_addressing,
     new_thread_id,
     normalize_topic,
+    topic_similarity,
 )
 
 
@@ -49,6 +50,7 @@ class AutonomousRuntime:
         self.world = WorldActionResolver()
         self._ensure_default_world()
         self._ensure_default_capabilities()
+        self._ensure_default_memory_policy()
 
     def _ensure_default_world(self) -> None:
         if self.store.locations(1):
@@ -83,6 +85,22 @@ class AutonomousRuntime:
             description="通过平台发送对外表达",
             available=True,
             requirements={"requires_platform_route": True},
+        )
+
+    def _ensure_default_memory_policy(self) -> None:
+        if self.store.memory_policies(1):
+            return
+        self.store.save_memory_policy(
+            "ctc-active-reconstruction",
+            version=1,
+            config={
+                "strategy": "cue-tag-content",
+                "selection": "active-expansion",
+                "semantic_fallback": "keyword-and-cjk-ngram",
+                "max_hops": 2,
+                "max_episodes": 8,
+            },
+            score={"status": "待积累评估", "evidence": 0},
         )
 
     def register_location(
@@ -219,10 +237,35 @@ class AutonomousRuntime:
             attributes={"last_actor_id": actor_id},
             event_id=event_id,
         )
-        existing = next(
-            (item for item in self.store.threads(50, channel_id) if item["topic"] == topic and item["status"] == "active"),
-            None,
+        observed_at = _now()
+        self.store.save_temporal_relation(
+            relation_id=f"relation:presence:{event_id}",
+            subject_id=f"person:{actor_id}",
+            predicate="appeared_in",
+            object_id=f"channel:{channel_id}",
+            object_value={"channel_id": channel_id, "actor_id": actor_id},
+            observed_at=observed_at,
+            valid_from=observed_at,
+            valid_to=None,
+            confidence=1.0,
+            source_event_id=event_id,
         )
+        self.store.close_stale_threads(channel_id)
+        active_threads = [
+            item for item in self.store.threads(50, channel_id)
+            if item["status"] == "active"
+        ]
+        exact_match = next((item for item in active_threads if item["topic"] == topic), None)
+        related_matches = sorted(
+            (
+                (topic_similarity(topic, item["topic"]), item)
+                for item in active_threads
+                if topic_similarity(topic, item["topic"]) >= 0.28
+            ),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        existing = exact_match or (related_matches[0][1] if related_matches else None)
         thread_id = existing["thread_id"] if existing else new_thread_id(channel_id, topic)
         participants = set(existing.get("participants", [])) if existing else set()
         participants.add(actor_id)
@@ -243,10 +286,12 @@ class AutonomousRuntime:
             addressee_id=address.selected_target_id,
             salience=max(0.0, min(1.0, 1.0 - address.confidence * 0.35)),
             version=int(existing["version"] + 1) if existing else 1,
-            last_event_at=_now(),
+            last_event_at=observed_at,
         )
         self.store.save_thread(thread)
         act_type = classify_dialogue_act(content)
+        if act_type.value == "apology":
+            self.store.repair_grievances(actor_id, evidence=event_id)
         self.store.save_dialogue_act(
             DialogueAct(
                 act_id=uuid.uuid4().hex,
@@ -266,6 +311,23 @@ class AutonomousRuntime:
             object_value={"content": content, "channel_id": channel_id},
             confidence=1.0,
             source_event_id=event_id,
+        )
+        self.store.save_memory_episode(
+            source_event_id=event_id,
+            channel_id=channel_id,
+            subject_id=actor_id,
+            summary=content,
+            event_kind="message",
+            importance=0.75 if act_type.value in {"question", "request", "insult", "apology"} else 0.35,
+            cues=(actor_id, channel_id, act_type.value),
+            tags=(topic, f"dialogue:{act_type.value}"),
+            content={
+                "actor_id": actor_id,
+                "channel_id": channel_id,
+                "target_id": address.selected_target_id,
+                "act_type": act_type.value,
+                "confidence": address.confidence,
+            },
         )
         if address.selected_target_id == self.agent_id and act_type.value in {"question", "request"}:
             self.store.save_obligation(
@@ -333,7 +395,13 @@ class AutonomousRuntime:
                 "scene_id": scene.scene_id,
                 "location_id": scene.location_id,
                 "activity": scene.activity,
+                "focus": state.focus,
+                "mood": dict(state.mood),
+                "drives": dict(state.drives),
+                "energy": state.energy,
+                "attention_load": state.attention_load,
                 "version": scene.version,
+                "state_version": state.version,
             },
         )
         return state

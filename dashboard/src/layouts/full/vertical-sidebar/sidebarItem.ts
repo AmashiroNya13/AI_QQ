@@ -30,7 +30,6 @@ const sidebarItem: menu[] = [
   {
     title: '人格与成长', icon: 'mdi-account-heart-outline', isRawTitle: true, children: [
       { title: '人格设定', icon: 'mdi-account-heart-outline', to: '/persona', isRawTitle: true },
-      { title: '语气与身份学习', icon: 'mdi-message-text-outline', to: '/ecobot/style', isRawTitle: true },
     ],
   },
   {
@@ -42,7 +41,7 @@ const sidebarItem: menu[] = [
   },
   {
     title: '对话与行为', icon: 'mdi-timeline-text-outline', isRawTitle: true, children: [
-      { title: '思考与行为', icon: 'mdi-timeline-text-outline', to: '/ecobot/runs', isRawTitle: true },
+      { title: '主体决策记录', icon: 'mdi-timeline-text-outline', to: '/ecobot/autonomy', isRawTitle: true },
       { title: 'AI 介入控制台', icon: 'mdi-tune', to: '/ecobot/settings', isRawTitle: true },
     ],
   },

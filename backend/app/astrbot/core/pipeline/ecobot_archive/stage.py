@@ -69,6 +69,16 @@ class EcobotArchiveStage(Stage):
                     if operator_id
                     else "平台明确反馈当前账号被群禁言，但没有可靠操作者信息",
                 )
+                self.autonomous_runtime.store.save_grievance(
+                    grievance_id=f"grievance:notice:{notice_event.event_id}",
+                    target_id=operator_id,
+                    source_consequence_id=notice_event.event_id,
+                    reason="平台明确反馈当前账号被群禁言" + ("，操作者信息明确" if operator_id else "，操作者未知"),
+                    responsibility_confidence=0.95 if operator_id else 0.0,
+                    intensity=0.9,
+                    repair_expected=0.7,
+                    evidence=[notice_event.event_id],
+                )
         if self.archive.record_event(event):
             logger.debug(
                 "[Ecobot][QQ事实档案] 事件已归档 | 频道=%s",

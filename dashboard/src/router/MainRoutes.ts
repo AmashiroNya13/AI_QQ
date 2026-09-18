@@ -42,11 +42,6 @@ const MainRoutes = {
       component: () => import('@/views/ecobot/EcobotMemoryPage.vue')
     },
     {
-      name: 'EcobotStyle',
-      path: '/ecobot/style',
-      component: () => import('@/views/ecobot/EcobotStylePage.vue')
-    },
-    {
       name: 'EcobotAutonomy',
       path: '/ecobot/autonomy',
       component: () => import('@/views/ecobot/EcobotAutonomyPage.vue')
@@ -60,11 +55,6 @@ const MainRoutes = {
       name: 'EcobotArchive',
       path: '/ecobot/archive',
       component: () => import('@/views/ecobot/EcobotArchivePage.vue')
-    },
-    {
-      name: 'EcobotRuns',
-      path: '/ecobot/runs',
-      component: () => import('@/views/ecobot/EcobotRunsPage.vue')
     },
     {
       name: 'EcobotSettings',

@@ -72,6 +72,22 @@ def normalize_topic(content: str) -> str:
     return text[:48].strip() or "未命名话题"
 
 
+def topic_similarity(left: str, right: str) -> float:
+    left_text = normalize_topic(left).lower()
+    right_text = normalize_topic(right).lower()
+    if left_text == right_text:
+        return 1.0
+    left_tokens = set(re.findall(r"[\w-]{2,}", left_text))
+    right_tokens = set(re.findall(r"[\w-]{2,}", right_text))
+    left_cjk = "".join(re.findall(r"[\u3400-\u9fff]", left_text))
+    right_cjk = "".join(re.findall(r"[\u3400-\u9fff]", right_text))
+    left_tokens.update(left_cjk[index:index + 2] for index in range(max(0, len(left_cjk) - 1)))
+    right_tokens.update(right_cjk[index:index + 2] for index in range(max(0, len(right_cjk) - 1)))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
+
+
 def classify_dialogue_act(content: str) -> DialogueActType:
     text = content.strip()
     if not text:

@@ -12,7 +12,7 @@ from urllib.parse import quote
 import aiohttp
 
 from .admin_store import DEFAULT_SETTINGS, EcobotAdminStore
-from .model_thinker import StructuredOutputError, parse_json_object
+from .structured import StructuredOutputError, parse_json_object
 from .qq_archive import QQArchive
 
 

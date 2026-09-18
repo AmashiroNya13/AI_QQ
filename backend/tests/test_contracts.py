@@ -1,6 +1,6 @@
 import unittest
 
-from ecobot.contracts import ActionSpec, Inference, Reflection, Stimulus
+from ecobot.contracts import BatchState, BehaviorResult, Desire, Inference, Stimulus
 
 
 class ContractTests(unittest.TestCase):
@@ -17,13 +17,9 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Inference(intent="chat", confidence=1.1)
 
-    def test_action_requires_name(self) -> None:
-        with self.assertRaises(ValueError):
-            ActionSpec("  ")
-
-    def test_satisfied_reflection_cannot_replan(self) -> None:
-        with self.assertRaises(ValueError):
-            Reflection(True, "done", revised_plan=object())
+    def test_subject_result_keeps_single_decision_state(self) -> None:
+        result = BehaviorResult("batch", BatchState.COMPLETED, "ok", Desire(100, True))
+        self.assertEqual(result.state.value, "completed")
 
 
 if __name__ == "__main__":

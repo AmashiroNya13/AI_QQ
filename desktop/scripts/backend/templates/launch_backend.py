@@ -22,6 +22,14 @@ STARTUP_HEARTBEAT_INTERVAL_SECONDS = 2.0
 STARTUP_HEARTBEAT_STOP_JOIN_TIMEOUT_SECONDS = 1.0
 
 
+def configure_astrbot_root() -> Path:
+    configured = os.environ.get("ASTRBOT_ROOT", "").strip()
+    root = Path(configured) if configured else Path.home() / ".astrbot"
+    resolved = root.expanduser().resolve()
+    os.environ["ASTRBOT_ROOT"] = str(resolved)
+    return resolved
+
+
 def configure_stdio_utf8() -> None:
     os.environ.setdefault("PYTHONUTF8", "1")
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
