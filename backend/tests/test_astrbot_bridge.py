@@ -83,6 +83,8 @@ class SubjectDecisionTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(calls), 1)
             self.assertEqual(result.expression, "我先回你一下")
+            self.assertGreater(result.desire.score, 0.0)
+            self.assertLess(result.desire.score, 100.0)
             self.assertEqual(runtime.store.intentions(10, status="planned")[0]["action_type"], "go_to")
             runtime.close()
 
